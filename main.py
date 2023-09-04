@@ -299,5 +299,5 @@ if __name__ == '__main__':
             eval_datasets[subset] = TensorDataset(data['features'], data['projections'], data['labels'])
             print(f"* Loaded encoded {subset} dataset from {subset_file}")
         else:
-            print(f"===> Encoding {subset} dataset for evaluation")
+            print(f"===> Encoding '{subset}' dataset for evaluation")
             eval_datasets[subset] = encode(net, dataloader, subset_file)
