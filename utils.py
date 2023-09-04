@@ -268,8 +268,8 @@ class GBlur:
 
     def __call__(self, img):
         # xxx(okachaiev): fix random seeding
-        if torch.random.rand() < self.p:
-            sigma = torch.random.rand() * 1.9 + 0.1
+        if torch.rand(1).item() < self.p:
+            sigma = torch.rand(1).item() * 1.9 + 0.1
             return img.filter(ImageFilter.GaussianBlur(sigma))
         else:
             return img

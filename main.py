@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
@@ -179,8 +179,11 @@ torch.cuda.manual_seed(args.seed)
 # xxx(okachaiev): switch to pathlib
 folder_name = f"{args.log_folder}/{args.exp_name}_numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
 model_dir = folder_name+"/checkpoints/"
+artifacts_dir = folder_name+"/artifacts/"
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
+if not os.path.exists(artifacts_dir):
+    os.makedirs(artifacts_dir)
 
 # detect available device
 device = torch.device('cuda' if (args.device == 'cuda' and torch.cuda.is_available()) else 'cpu')
@@ -189,8 +192,16 @@ n_workers = min(8, os.cpu_count()-1)
 
 # setup dataset and data loader
 train_dataset = load_dataset(args.dataset, train=True, n_patch=args.n_patches)
-dataloader = DataLoader(
+train_dataloader = DataLoader(
     train_dataset,
+    batch_size=args.bs,
+    shuffle=True,
+    drop_last=True,
+    num_workers=n_workers
+)
+test_dataset = load_dataset(args.dataset, train=True, n_patch=args.n_patches)
+test_dataloader = DataLoader(
+    test_dataset,
     batch_size=args.bs,
     shuffle=True,
     drop_last=True,
@@ -202,7 +213,7 @@ def train(net: nn.Module):
     # setup optimizer and scheduler
     optimizer = SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4, nesterov=True)
     optimizer = LARSWrapper(optimizer, eta=0.005, clip=True, exclude_bias_n_norm=True,)
-    n_converge = (len(dataloader) // args.bs) * args.n_epoch
+    n_converge = (len(train_dataloader) // args.bs) * args.n_epoch
     scheduler = CosineAnnealingLR(optimizer, T_max=n_converge, eta_min=0, last_epoch=-1)
 
     # training criterion
@@ -210,11 +221,11 @@ def train(net: nn.Module):
     tcr_loss = TotalCodingRateLoss(eps=args.eps)
 
     for epoch in range(args.n_epoch):
-        for _, (data, _) in tqdm(enumerate(dataloader)):
-            data = torch.stack(data, dim=0).to(device)
-            n_patches, bs, C, H, W = data.shape
-            data = data.reshape(n_patches*bs, C, H, W)
-            _, z_proj = net(data)
+        for (X, _) in tqdm(train_dataloader):
+            X = torch.stack(X, dim=0).to(device)
+            n_patches, bs, C, H, W = X.shape
+            X = X.reshape(n_patches*bs, C, H, W)
+            _, z_proj = net(X)
             z_proj = z_proj.reshape(n_patches, bs, -1)
             loss_sim = similarity_loss(z_proj)
             loss_TCR = tcr_loss(z_proj)
@@ -234,6 +245,33 @@ def train(net: nn.Module):
         torch.save(net.state_dict(), f"{model_dir}{epoch}.pt")
 
 
+def encode(net, dataloader, subset_file: str) -> TensorDataset:
+    # xxx(okachaiev): if we have access to dimensions, we could
+    # pre-allocated tensor to avoid dealing with python lists + cat()
+    features, projections, labels = [], [], []
+    with torch.no_grad():
+        for X, y in tqdm(dataloader):
+            X = torch.stack(X, dim = 0).to(device)
+            n_patches, bs, C, H, W = X.shape
+            X = X.reshape(n_patches*bs, C, H, W)
+            z_proj, h = net(X)
+            h = h.reshape(-1, n_patches, h.shape[1])
+            features.append(h.cpu())
+            projections.append(y.cpu())
+            labels.append(z_proj.cpu())
+    features, projections, labels = (
+        torch.cat(features, dim=0),
+        torch.cat(projections, dim=0),
+        torch.cat(labels, dim=0),
+    )
+    torch.save({
+        'features': features,
+        'projections': projections,
+        'labels': labels,
+    }, subset_file)
+    return TensorDataset(features, projections, labels)
+
+
 if __name__ == '__main__':
     net = Encoder(backbone_arch=args.arch).to(device)
     net = nn.DataParallel(net)
@@ -249,6 +287,17 @@ if __name__ == '__main__':
     else:
         print("===> Training SSL encoder")
         train(net)
-    
+
     # stage 2: encode images provided by train/test data loaders
-    pass
+    net.eval()
+    eval_datasets = {}
+    for dataloader, subset in [(train_dataloader, 'train'), (test_dataloader, 'test')]:
+        # check if encoded tensor is ready, otherwise run through the network
+        subset_file = f"{artifacts_dir}{subset}.pt"
+        if os.path.exists(subset_file):
+            data = torch.load(subset_file, map_location='cpu')
+            eval_datasets[subset] = TensorDataset(data['features'], data['projections'], data['labels'])
+            print(f"* Loaded encoded {subset} dataset from {subset_file}")
+        else:
+            print(f"===> Encoding {subset} dataset for evaluation")
+            eval_datasets[subset] = encode(net, dataloader, subset_file)
