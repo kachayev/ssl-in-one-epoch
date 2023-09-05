@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 from tqdm import tqdm
 from typing import Tuple
@@ -185,7 +186,7 @@ torch.manual_seed(args.seed)
 
 # folder for logging checkpoints and metrics
 # xxx(okachaiev): switch to pathlib
-folder_name = f"{args.log_folder}/{args.exp_name}_numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
+folder_name = f"{args.log_folder}/{args.exp_name}__numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
 model_dir = folder_name+"/checkpoints/"
 artifacts_dir = folder_name+"/artifacts/"
 if not os.path.exists(model_dir):
@@ -245,14 +246,17 @@ def train(net: nn.Module):
             optimizer.step()
         scheduler.step()
 
-        print(f"Epoch: {epoch} | "
-              f"Loss sim: {loss_sim.item():.5f} | "
-              f"Loss TCR: {loss_TCR.item():.5f}")
+        print(
+            f"Epoch: {epoch:03d} | "
+            f"Loss sim: {loss_sim.item():.5f} | "
+            f"Loss TCR: {loss_TCR.item():.5f}"
+        )
 
         # save checkpoint
         torch.save(net.state_dict(), f"{model_dir}{epoch}.pt")
 
 
+# xxx(okachaiev): add config if we want to save projections or not
 def encode(net: Encoder, data_loader, subset_file: str) -> TensorDataset:
     n_samples = len(data_loader)*args.bs
     features = torch.zeros((n_samples, args.n_patches, net.h_dim))
@@ -280,7 +284,7 @@ def encode(net: Encoder, data_loader, subset_file: str) -> TensorDataset:
 
 
 # xxx(okachaiev): we might also want to store trained classifier
-def evaluate(train_data, test_data, n_epochs=100, lr=0.0075):
+def evaluate(train_data, test_data, report_file: str, n_epochs=100, lr=0.0075):
     train_loader = DataLoader(
         train_data,
         batch_size=100,
@@ -308,6 +312,7 @@ def evaluate(train_data, test_data, n_epochs=100, lr=0.0075):
     criterion = nn.CrossEntropyLoss()
 
     test_accuracy = torch.zeros(n_epochs)
+    test_accuracy_top5 = torch.zeros(n_epochs)
     for epoch in range(n_epochs):
         train_top1 = torch.zeros(len(train_loader))
         # train
@@ -343,9 +348,10 @@ def evaluate(train_data, test_data, n_epochs=100, lr=0.0075):
         avg_test_top5 = test_top5.mean().item()
 
         test_accuracy[epoch] = avg_test_top1
+        test_accuracy_top5[epoch] = avg_test_top5
 
         print(
-            f"Epoch: {epoch} | "
+            f"Epoch: {epoch:03d} | "
             f"Top1 (train): {avg_train_top1*100:.4f} | "
             f"Top1 (test): {avg_test_top1*100:.4f} | "
             f"Top5 (test): {avg_test_top5*100:.4f}"
@@ -356,6 +362,14 @@ def evaluate(train_data, test_data, n_epochs=100, lr=0.0075):
         f"Best top1 (test): {test_accuracy.max().item()*100:.4f} | "
         f"Last top1 (test): {test_accuracy[-1].item()*100:.4f}"
     )
+    # xxx(okachaiev): it might be better to save artifact outside of the
+    # function in a main "experiment" loop. or switch to a summary writer
+    # like TB or DVC
+    with open(report_file, "w") as fd:
+        json.dump({
+            "top1 (test)": test_accuracy.max().item()*100,
+            "top5 (test)": test_accuracy_top5.max().item()*100,
+        }, fd, indent=4)
 
 
 if __name__ == '__main__':
@@ -376,7 +390,7 @@ if __name__ == '__main__':
     # stage 2: encode images provided by train/test data loaders
     net.eval()
     eval_datasets = {}
-    for dataloader, subset in [(train_dataloader, 'train'), (test_dataloader, 'test')]:
+    for subset, dataloader in [('train', train_dataloader), ('test', test_dataloader)]:
         # check if encoded tensor is ready, otherwise run through the network
         subset_file = f"{artifacts_dir}{subset}.pt"
         if os.path.exists(subset_file):
@@ -388,5 +402,11 @@ if __name__ == '__main__':
             eval_datasets[subset] = encode(net, dataloader, subset_file)
 
     # stage 3: train linear classifier to measure representation performance
-    print("===> Fitting linear classifier")
-    evaluate(eval_datasets['train'], eval_datasets['test'])
+    report_file = f"{folder_name}/linear_accuracy.json"
+    if os.path.exists(report_file):
+        print(f"* Loading linear classifier performance from {report_file}")
+        with open(report_file, "r") as fd:
+            print(fd.read())
+    else:
+        print("===> Fitting linear classifier")
+        evaluate(eval_datasets['train'], eval_datasets['test'], report_file)
