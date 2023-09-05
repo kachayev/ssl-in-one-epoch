@@ -56,19 +56,20 @@ class Encoder(nn.Module):
 
     def __init__(self, z_dim=1024, hidden_dim=4096, norm_p=2, backbone_arch="resnet18-cifar"):
         super().__init__()
-        backbone, feature_dim  = get_backbone(backbone_arch)
-        self.backbone = backbone
+        self.backbone, self.backbone_dim  = get_backbone(backbone_arch)
+        self.z_dim = z_dim
+        self.h_dim = hidden_dim
         self.norm_p = norm_p
         self.pre_feature = nn.Sequential(
-            nn.Linear(feature_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
+            nn.Linear(self.backbone_dim, self.h_dim),
+            nn.BatchNorm1d(self.h_dim),
             nn.ReLU(),
         )
         self.projection = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
+            nn.Linear(self.h_dim, self.h_dim),
+            nn.BatchNorm1d(self.h_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, z_dim)
+            nn.Linear(self.h_dim, z_dim)
         )
 
     def forward(self, x):
@@ -245,25 +246,22 @@ def train(net: nn.Module):
         torch.save(net.state_dict(), f"{model_dir}{epoch}.pt")
 
 
-def encode(net, dataloader, subset_file: str) -> TensorDataset:
-    # xxx(okachaiev): if we have access to dimensions, we could
-    # pre-allocated tensor to avoid dealing with python lists + cat()
-    features, projections, labels = [], [], []
+def encode(net: Encoder, dataloader, subset_file: str) -> TensorDataset:
+    n_samples = len(dataloader)
+    features = torch.zeros((n_samples, args.n_patches, net.h_dim))
+    projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
+    labels = torch.zeros((n_samples,))
     with torch.no_grad():
-        for X, y in tqdm(dataloader):
+        for batch_id, (X, y) in tqdm(enumerate(dataloader)):
             X = torch.stack(X, dim = 0).to(device)
             n_patches, bs, C, H, W = X.shape
             X = X.reshape(n_patches*bs, C, H, W)
-            z_proj, h = net(X)
-            h = h.reshape(-1, n_patches, h.shape[1])
-            features.append(h.cpu())
-            projections.append(y.cpu())
-            labels.append(z_proj.cpu())
-    features, projections, labels = (
-        torch.cat(features, dim=0),
-        torch.cat(projections, dim=0),
-        torch.cat(labels, dim=0),
-    )
+            h, z_proj = net(X)
+            h = h.reshape(n_patches, bs, net.h_dim).permute(1,0,2)
+            z_proj = z_proj.reshape(n_patches, bs, net.z_dim).permute(1,0,2)
+            features[batch_id*bs:(batch_id+1)*bs, :, :] = h
+            projections[batch_id*bs:(batch_id+1)*bs, :, :] = z_proj
+            labels[batch_id*bs:(batch_id+1)*bs] = y
     torch.save({
         'features': features,
         'projections': projections,
@@ -274,7 +272,6 @@ def encode(net, dataloader, subset_file: str) -> TensorDataset:
 
 if __name__ == '__main__':
     net = Encoder(backbone_arch=args.arch).to(device)
-    net = nn.DataParallel(net)
 
     # stage 1: train SSL encoder
     # check if there's a checkpoint that could be loaded,
