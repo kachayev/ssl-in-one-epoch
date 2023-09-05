@@ -274,13 +274,14 @@ class Solarization:
 
 class GBlur:
 
-    def __init__(self, p):
+    def __init__(self, p, seed=0):
         self.p = p
+        self.rng = torch.Generator(device='cpu')
+        self.rng.manual_seed(seed)
 
     def __call__(self, img):
-        # xxx(okachaiev): fix random seeding
-        if torch.rand(1).item() < self.p:
-            sigma = torch.rand(1).item() * 1.9 + 0.1
+        if torch.rand(1, generator=self.rng).item() < self.p:
+            sigma = torch.rand(1, generator=self.rng).item() * 1.9 + 0.1
             return img.filter(ImageFilter.GaussianBlur(sigma))
         else:
             return img

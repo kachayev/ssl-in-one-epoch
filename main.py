@@ -17,8 +17,10 @@ from utils import GBlur, LARSWrapper, Solarization, accuracy
 
 class ContrastiveLearningViewGenerator:
 
-    def __init__(self, n_patch: int = 4):
+    def __init__(self, n_patch: int = 4, seed: int = 0):
         self.n_patch = n_patch
+        self.rng = torch.Generator(device='cpu')
+        self.rng.manual_seed(seed)
 
     def __call__(self, x):
         transform = transforms.Compose([
@@ -26,7 +28,7 @@ class ContrastiveLearningViewGenerator:
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.2)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
-            GBlur(p=0.1),
+            GBlur(p=0.1, seed=torch.randint(1 << 31, size=(1,), generator=self.rng).item()),
             transforms.RandomApply([Solarization()], p=0.1),
             transforms.ToTensor(),  
             transforms.Normalize([0.5,0.5,0.5], [0.5,0.5,0.5])
@@ -112,10 +114,16 @@ class SimilarityLoss(nn.Module):
 
 
 # xxx(okachaeiev): i guess data_name should be enum
-def load_dataset(dataset_name: str, train: bool = True, n_patch: int = 4, path: str = "./datasets/"):
+def load_dataset(
+    dataset_name: str,
+    train: bool = True,
+    n_patch: int = 4,
+    path: str = "./datasets/",
+    seed: int = 0
+):
     """Loads a dataset for training and testing"""
     dataset_name = dataset_name.lower()
-    transform = ContrastiveLearningViewGenerator(n_patch=n_patch)
+    transform = ContrastiveLearningViewGenerator(n_patch=n_patch, seed=seed)
     if dataset_name == "cifar10":
         trainset = datasets.CIFAR10(
             root=os.path.join(path, "CIFAR10"),
@@ -174,7 +182,6 @@ def parse_args():
 
 args = parse_args()
 torch.manual_seed(args.seed)
-torch.cuda.manual_seed(args.seed)
 
 # folder for logging checkpoints and metrics
 # xxx(okachaiev): switch to pathlib
@@ -192,7 +199,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 n_workers = min(8, os.cpu_count()-1)
 
 # setup dataset and data loader
-train_dataset = load_dataset(args.dataset, train=True, n_patch=args.n_patches)
+train_dataset = load_dataset(args.dataset, train=True, n_patch=args.n_patches, seed=args.seed)
 train_dataloader = DataLoader(
     train_dataset,
     batch_size=args.bs,
