@@ -176,6 +176,8 @@ def parse_args():
                         help='device to use for training (default: cuda)')
     parser.add_argument('--seed', type=int, default=42,
                         help='random seed')
+    parser.add_argument('--save_proj', default=False, action='store_true',
+                        help='include this flag to save patch embeddings and projections')
 
     args = parser.parse_args()
     return args
@@ -259,9 +261,11 @@ def train(net: nn.Module):
 # xxx(okachaiev): add config if we want to save projections or not
 def encode(net: Encoder, data_loader, subset_file: str) -> TensorDataset:
     n_samples = len(data_loader)*args.bs
-    features = torch.zeros((n_samples, args.n_patches, net.h_dim))
-    projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
+    embeddings = torch.zeros((n_samples, net.h_dim))
     labels = torch.zeros((n_samples,))
+    if args.save_proj:
+        features = torch.zeros((n_samples, args.n_patches, net.h_dim))
+        projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
     for batch_id, (X, y) in tqdm(enumerate(data_loader)):
         X = torch.stack(X, dim = 0).to(device)
         n_patches, bs, C, H, W = X.shape
@@ -270,16 +274,15 @@ def encode(net: Encoder, data_loader, subset_file: str) -> TensorDataset:
             h, z_proj = net(X)
         h = h.reshape(n_patches, bs, net.h_dim).permute(1,0,2)
         z_proj = z_proj.reshape(n_patches, bs, net.z_dim).permute(1,0,2)
-        features[batch_id*bs:(batch_id+1)*bs, :, :] = h
-        projections[batch_id*bs:(batch_id+1)*bs, :, :] = z_proj
+        embeddings[batch_id*bs:(batch_id+1)*bs, :] = h.mean(1)
         labels[batch_id*bs:(batch_id+1)*bs] = y
-    embeddings = features.mean(1)
-    torch.save({
-        'embeddings': embeddings,
-        'features': features,
-        'projections': projections,
-        'labels': labels,
-    }, subset_file)
+        if args.save_proj:
+            features[batch_id*bs:(batch_id+1)*bs, :, :] = h
+            projections[batch_id*bs:(batch_id+1)*bs, :, :] = z_proj
+    artifact = {'embeddings': embeddings, 'labels': labels}
+    if args.save_proj:
+        artifact.update({'features': features, 'projections': projections})
+    torch.save(artifact, subset_file)
     return TensorDataset(embeddings, labels.long())
 
 
