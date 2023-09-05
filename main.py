@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
-from utils import GBlur, LARSWrapper, Solarization
+from utils import GBlur, LARSWrapper, Solarization, accuracy
 
 
 class ContrastiveLearningViewGenerator:
@@ -123,7 +123,7 @@ def load_dataset(dataset_name: str, train: bool = True, n_patch: int = 4, path: 
             download=True,
             transform=transform
         )
-        trainset.num_classes = 10
+        trainset.n_classes = 10
     elif dataset_name == "cifar100":
         trainset = datasets.CIFAR100(
             root=os.path.join(path, "CIFAR100"),
@@ -131,7 +131,7 @@ def load_dataset(dataset_name: str, train: bool = True, n_patch: int = 4, path: 
             download=True,
             transform=transform
         )
-        trainset.num_classes = 100
+        trainset.n_classes = 100
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
     return trainset
@@ -246,28 +246,109 @@ def train(net: nn.Module):
         torch.save(net.state_dict(), f"{model_dir}{epoch}.pt")
 
 
-def encode(net: Encoder, dataloader, subset_file: str) -> TensorDataset:
-    n_samples = len(dataloader)
+def encode(net: Encoder, data_loader, subset_file: str) -> TensorDataset:
+    n_samples = len(data_loader)*args.bs
     features = torch.zeros((n_samples, args.n_patches, net.h_dim))
     projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
     labels = torch.zeros((n_samples,))
-    with torch.no_grad():
-        for batch_id, (X, y) in tqdm(enumerate(dataloader)):
-            X = torch.stack(X, dim = 0).to(device)
-            n_patches, bs, C, H, W = X.shape
-            X = X.reshape(n_patches*bs, C, H, W)
+    for batch_id, (X, y) in tqdm(enumerate(data_loader)):
+        X = torch.stack(X, dim = 0).to(device)
+        n_patches, bs, C, H, W = X.shape
+        X = X.reshape(n_patches*bs, C, H, W)
+        with torch.no_grad():
             h, z_proj = net(X)
-            h = h.reshape(n_patches, bs, net.h_dim).permute(1,0,2)
-            z_proj = z_proj.reshape(n_patches, bs, net.z_dim).permute(1,0,2)
-            features[batch_id*bs:(batch_id+1)*bs, :, :] = h
-            projections[batch_id*bs:(batch_id+1)*bs, :, :] = z_proj
-            labels[batch_id*bs:(batch_id+1)*bs] = y
+        h = h.reshape(n_patches, bs, net.h_dim).permute(1,0,2)
+        z_proj = z_proj.reshape(n_patches, bs, net.z_dim).permute(1,0,2)
+        features[batch_id*bs:(batch_id+1)*bs, :, :] = h
+        projections[batch_id*bs:(batch_id+1)*bs, :, :] = z_proj
+        labels[batch_id*bs:(batch_id+1)*bs] = y
+    embeddings = features.mean(1)
     torch.save({
+        'embeddings': embeddings,
         'features': features,
         'projections': projections,
         'labels': labels,
     }, subset_file)
-    return TensorDataset(features, projections, labels)
+    return TensorDataset(embeddings, labels.long())
+
+
+# xxx(okachaiev): we might also want to store trained classifier
+def evaluate(train_data, test_data, n_epochs=100, lr=0.0075):
+    train_loader = DataLoader(
+        train_data,
+        batch_size=100,
+        shuffle=True,
+        drop_last=True,
+        num_workers=2
+    )
+    test_loader = DataLoader(
+        test_data,
+        batch_size=100,
+        shuffle=True,
+        drop_last=False,
+        num_workers=2
+    )
+
+    # setup model, optimizer, and scheduler
+    classifier = nn.Linear(
+        train_data.tensors[0].shape[1],
+        train_dataset.n_classes
+    ).to(device)
+    optimizer = SGD(classifier.parameters(), lr=lr, momentum=0.9, weight_decay=5e-5)
+    scheduler = CosineAnnealingLR(optimizer, 100)
+    
+    # define loss function
+    criterion = nn.CrossEntropyLoss()
+
+    test_accuracy = torch.zeros(n_epochs)
+    for epoch in range(n_epochs):
+        train_top1 = torch.zeros(len(train_loader))
+        # train
+        classifier.train()
+        for batch_id, (X, y) in enumerate(train_loader):
+            X, y = X.to(device), y.to(device)
+            logits = classifier(X)
+            loss = criterion(logits, y)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            #  batch accuracy
+            top1, = accuracy(logits, y, topk=(1,))
+            train_top1[batch_id] = top1
+        scheduler.step() 
+
+        # train accuracy
+        avg_train_top1 = train_top1.mean().item()
+
+        # eval on test dataset now
+        test_top1 = torch.zeros(len(test_loader))
+        test_top5 = torch.zeros(len(test_loader))
+        classifier.eval()
+        for batch_id, (X, y) in enumerate(test_loader):
+            X, y = X.to(device), y.to(device)
+            with torch.no_grad():
+                logits = classifier(X)
+            top1, top5 = accuracy(logits, y, topk=(1,5))
+            test_top1[batch_id] = top1
+            test_top5[batch_id] = top5
+
+        avg_test_top1 = test_top1.mean().item()
+        avg_test_top5 = test_top5.mean().item()
+
+        test_accuracy[epoch] = avg_test_top1
+
+        print(
+            f"Epoch: {epoch} | "
+            f"Top1 (train): {avg_train_top1*100:.4f} | "
+            f"Top1 (test): {avg_test_top1*100:.4f} | "
+            f"Top5 (test): {avg_test_top5*100:.4f}"
+        )
+
+    # report best performance
+    print(
+        f"Best top1 (test): {test_accuracy.max().item()*100:.4f} | "
+        f"Last top1 (test): {test_accuracy[-1].item()*100:.4f}"
+    )
 
 
 if __name__ == '__main__':
@@ -293,8 +374,12 @@ if __name__ == '__main__':
         subset_file = f"{artifacts_dir}{subset}.pt"
         if os.path.exists(subset_file):
             data = torch.load(subset_file, map_location='cpu')
-            eval_datasets[subset] = TensorDataset(data['features'], data['projections'], data['labels'])
+            eval_datasets[subset] = TensorDataset(data['embeddings'], data['labels'].long())
             print(f"* Loaded encoded {subset} dataset from {subset_file}")
         else:
             print(f"===> Encoding '{subset}' dataset for evaluation")
             eval_datasets[subset] = encode(net, dataloader, subset_file)
+
+    # stage 3: train linear classifier to measure representation performance
+    print("===> Fitting linear classifier")
+    evaluate(eval_datasets['train'], eval_datasets['test'])
