@@ -109,6 +109,6 @@ optional arguments:
 
 * LARS optimizer is critical. Without it, the top1 accuracy for `n_patches=50` on CIFAR10 is only 57.97%. This fact is worrisome without good theoretical understanding of what exactly leads to such performance gain when applying LARS. It seems one of the original goal was to find an SSL algorithm that doesn't depend drastically on details of the training regime.
 
-* Loading pre-trained weights for projection network and keeping it frozen yields 87.35% top1 accuracy on CIFAR10 with 50 patches (almost -2% of accuracy). This is somewhat surprising, I would expect the network to converge to roughly the same quality of the representation. As we don't have supervision signal, this might mean that existing projection network induce bias in the learning process w.r.t. to the loss function used.
+* Loading pre-trained weights for projection network and keeping it frozen yields 87.35-86.85% top1 accuracy on CIFAR10 with 50 patches (over multiple runs). This is somewhat surprising, I would expect the network to converge to roughly the same quality of the representation. As we don't have supervision signal, this might mean that existing projection network induce bias in the learning process w.r.t. to the loss function used.
 
 (This list will be updated with more experiments.)
