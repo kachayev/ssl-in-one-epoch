@@ -100,8 +100,10 @@ optional arguments:
 
 * The use of the `ReLU` activation within the feature encoder doesn't appear to significantly alter performance. Utilizing alternative activation layers, such as `Tanh`, yields comparable results. Interestingly, while in some cases a `ReLU` post a `BatchNorm1d` can carry nuanced implications, that doesn't seem to be the scenario here.
 
-* The inclusion of `BatchNorm1d` is paramount, both for the feature encoder and the projection network.
+* The inclusion of `BatchNorm1d` is not paramount (by any means), both for the feature encoder and the projection network. Removing both batch norms drops top1 test performance for `n_patches=50` on CIFAR10 from 89.25% to 88.81%.
 
 * The TCR loss displays a marked sensitivity concerning the number of patches used and the structure of the batch. As one might intuitively expect, when a batch inadvertently contains patches from the same image, there's a considerable dip in performance.
+
+* LARS optimizer is critical. Without it, the top1 accuracy for `n_patches=50` on CIFAR10 is only 57.97%. This fact is worrisome without good theoretical understanding of what exactly leads to such performance gain when applying LARS. It seems one of the original goal was to find an SSL algorithm that doesn't depend drastically on details of the training regime.
 
 (This list will be updated with more experiments.)
