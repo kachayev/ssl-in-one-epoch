@@ -93,6 +93,9 @@ optional arguments:
   --n_epoch N_EPOCH     max number of epochs to finish (default: 2)
   --device DEVICE       device to use for training (default: cuda)
   --seed SEED           random seed
+  --save_proj           include this flag to save patch embeddings and projections
+  --pretrained_proj PRETRAINED_PROJ
+                        use pre-trained weights for the projection network
 ```
 
 
@@ -105,5 +108,7 @@ optional arguments:
 * The TCR loss displays a marked sensitivity concerning the number of patches used and the structure of the batch. As one might intuitively expect, when a batch inadvertently contains patches from the same image, there's a considerable dip in performance.
 
 * LARS optimizer is critical. Without it, the top1 accuracy for `n_patches=50` on CIFAR10 is only 57.97%. This fact is worrisome without good theoretical understanding of what exactly leads to such performance gain when applying LARS. It seems one of the original goal was to find an SSL algorithm that doesn't depend drastically on details of the training regime.
+
+* Loading pre-trained weights for projection network and keeping it frozen yields 87.35% top1 accuracy on CIFAR10 with 50 patches (almost -2% of accuracy). This is somewhat surprising, I would expect the network to converge to roughly the same quality of the representation. As we don't have supervision signal, this might mean that existing projection network induce bias in the learning process w.r.t. to the loss function used.
 
 (This list will be updated with more experiments.)

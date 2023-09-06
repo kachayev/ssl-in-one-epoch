@@ -178,6 +178,8 @@ def parse_args():
                         help='random seed')
     parser.add_argument('--save_proj', default=False, action='store_true',
                         help='include this flag to save patch embeddings and projections')
+    parser.add_argument('--pretrained_proj', default=None, type=str,
+                       help='use pretrained weights for the projection network')
 
     args = parser.parse_args()
     return args
@@ -377,6 +379,15 @@ def evaluate(train_data, test_data, report_file: str, n_epochs=100, lr=0.0075):
 
 if __name__ == '__main__':
     net = Encoder(backbone_arch=args.arch).to(device)
+    if args.pretrained_proj:
+        net_weights = net.state_dict()
+        weights = torch.load(args.pretrained_proj, map_location=device)
+        # filter out projection network weights
+        net_weights.update({k: v for k, v in weights.items() if k.startswith('projection.')})
+        net.load_state_dict(net_weights)
+        # freeze training for projection
+        for params in net.projection.parameters():
+            params.requires_grad = False
 
     # stage 1: train SSL encoder
     # check if there's a checkpoint that could be loaded,
