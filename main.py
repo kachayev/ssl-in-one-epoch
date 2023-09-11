@@ -260,7 +260,7 @@ def train(net: nn.Module):
         )
 
         # save checkpoint
-        torch.save(net.state_dict(), f"{model_dir}{epoch}.pt")
+        torch.save(net.state_dict(), model_dir / f"{epoch}.pt")
 
 
 def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> TensorDataset:
