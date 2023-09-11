@@ -183,6 +183,8 @@ def parse_args():
                         help='include this flag to save patch embeddings and projections')
     parser.add_argument('--pretrained_proj', default=None, type=str,
                        help='use pretrained weights for the projection network')
+    parser.add_argument('--h_dim', default=4096, type=int, help='patch embedding dimensionality')
+    parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
 
     args = parser.parse_args()
     return args
@@ -385,7 +387,7 @@ def evaluate(
 
 
 if __name__ == '__main__':
-    net = Encoder(backbone_arch=args.arch).to(device)
+    net = Encoder(z_dim=args.z_dim, hidden_dim=args.h_dim, backbone_arch=args.arch).to(device)
     if args.pretrained_proj:
         net_weights = net.state_dict()
         weights = torch.load(args.pretrained_proj, map_location=device)
