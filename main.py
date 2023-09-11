@@ -1,8 +1,9 @@
 import argparse
 import json
 import os
+from pathlib import Path
 from tqdm import tqdm
-from typing import Tuple
+from typing import Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -120,15 +121,16 @@ def load_dataset(
     dataset_name: str,
     train: bool = True,
     n_patch: int = 4,
-    path: str = "./datasets/",
+    folder: Union[str, os.PathLike] = "./datasets/",
     seed: int = 0
 ):
     """Loads a dataset for training and testing"""
+    folder = Path(folder)
     dataset_name = dataset_name.lower()
     transform = ContrastiveLearningViewGenerator(n_patch=n_patch, seed=seed)
     if dataset_name == "cifar10":
         trainset = datasets.CIFAR10(
-            root=os.path.join(path, "CIFAR10"),
+            root=folder / "CIFAR10",
             train=train,
             download=True,
             transform=transform
@@ -136,7 +138,7 @@ def load_dataset(
         trainset.n_classes = 10
     elif dataset_name == "cifar100":
         trainset = datasets.CIFAR100(
-            root=os.path.join(path, "CIFAR100"),
+            root=folder / "CIFAR100",
             train=train,
             download=True,
             transform=transform
@@ -191,14 +193,11 @@ print("* Parameters:", args)
 torch.manual_seed(args.seed)
 
 # folder for logging checkpoints and metrics
-# xxx(okachaiev): switch to pathlib
-folder_name = f"{args.log_folder}/{args.exp_name}__numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
-model_dir = folder_name+"/checkpoints/"
-artifacts_dir = folder_name+"/artifacts/"
-if not os.path.exists(model_dir):
-    os.makedirs(model_dir)
-if not os.path.exists(artifacts_dir):
-    os.makedirs(artifacts_dir)
+exp_dir = Path(args.log_folder) / f"{args.exp_name}__numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
+model_dir = exp_dir / "checkpoints"
+model_dir.mkdir(parents=True, exist_ok=True)
+artifacts_dir = exp_dir / "artifacts"
+artifacts_dir.mkdir(parents=True, exist_ok=True)
 
 # detect available device
 device = torch.device('cuda' if (args.device == 'cuda' and torch.cuda.is_available()) else 'cpu')
@@ -262,8 +261,7 @@ def train(net: nn.Module):
         torch.save(net.state_dict(), f"{model_dir}{epoch}.pt")
 
 
-# xxx(okachaiev): add config if we want to save projections or not
-def encode(net: Encoder, data_loader, subset_file: str) -> TensorDataset:
+def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> TensorDataset:
     n_samples = len(data_loader)*args.bs
     embeddings = torch.zeros((n_samples, net.h_dim))
     labels = torch.zeros((n_samples,))
@@ -291,17 +289,24 @@ def encode(net: Encoder, data_loader, subset_file: str) -> TensorDataset:
 
 
 # xxx(okachaiev): we might also want to store trained classifier
-def evaluate(train_data, test_data, report_file: str, n_epochs=100, lr=0.0075):
+def evaluate(
+    train_data,
+    test_data,
+    report_file: Union[str, os.PathLike],
+    n_epochs: int = 100,
+    lr: float = 0.0075,
+    batch_size: int = 100,
+):
     train_loader = DataLoader(
         train_data,
-        batch_size=100,
+        batch_size=batch_size,
         shuffle=True,
         drop_last=True,
         num_workers=2
     )
     test_loader = DataLoader(
         test_data,
-        batch_size=100,
+        batch_size=batch_size,
         shuffle=True,
         drop_last=False,
         num_workers=2
@@ -394,7 +399,7 @@ if __name__ == '__main__':
     # stage 1: train SSL encoder
     # check if there's a checkpoint that could be loaded,
     # otherwise run training
-    last_checkpoint = f"{model_dir}{args.n_epoch-1}.pt"
+    last_checkpoint = model_dir / f"{args.n_epoch-1}.pt"
     if os.path.exists(last_checkpoint):
         weights = torch.load(last_checkpoint, map_location=device)
         net.load_state_dict(weights)
@@ -408,7 +413,7 @@ if __name__ == '__main__':
     eval_datasets = {}
     for subset, dataloader in [('train', train_dataloader), ('test', test_dataloader)]:
         # check if encoded tensor is ready, otherwise run through the network
-        subset_file = f"{artifacts_dir}{subset}.pt"
+        subset_file = artifacts_dir / f"{subset}.pt"
         if os.path.exists(subset_file):
             data = torch.load(subset_file, map_location='cpu')
             eval_datasets[subset] = TensorDataset(data['embeddings'], data['labels'].long())
@@ -418,7 +423,7 @@ if __name__ == '__main__':
             eval_datasets[subset] = encode(net, dataloader, subset_file)
 
     # stage 3: train linear classifier to measure representation performance
-    report_file = f"{folder_name}/linear_accuracy.json"
+    report_file = exp_dir / "linear_accuracy.json"
     if os.path.exists(report_file):
         print(f"* Loading linear classifier performance from {report_file}")
         with open(report_file, "r") as fd:
