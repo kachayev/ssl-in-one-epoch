@@ -20,21 +20,22 @@ class ContrastiveLearningViewGenerator:
 
     def __init__(self, n_patch: int = 4, seed: int = 0):
         self.n_patch = n_patch
-        self.rng = torch.Generator(device='cpu')
-        self.rng.manual_seed(seed)
-
-    def __call__(self, x):
-        transform = transforms.Compose([
-            transforms.RandomResizedCrop(32,scale=(0.25, 0.25), ratio=(1,1)),
+        self.rng_ = torch.Generator(device='cpu')
+        self.rng_.manual_seed(seed)
+        blur_seed = torch.randint(1 << 31, size=(1,), generator=self.rng_).item()
+        self.transform_ = transforms.Compose([
+            transforms.RandomResizedCrop(32, scale=(0.25, 0.25), ratio=(1,1)),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.2)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
-            GBlur(p=0.1, seed=torch.randint(1 << 31, size=(1,), generator=self.rng).item()),
+            GBlur(p=0.1, seed=blur_seed),
             transforms.RandomApply([Solarization()], p=0.1),
             transforms.ToTensor(),  
             transforms.Normalize([0.5,0.5,0.5], [0.5,0.5,0.5])
         ])
-        return [transform(x) for _ in range(self.n_patch)]
+
+    def __call__(self, x):
+        return [self.transform_(x) for _ in range(self.n_patch)]
 
 
 def get_backbone(arch: str) -> Tuple[nn.Module, int]:
@@ -186,6 +187,7 @@ def parse_args():
 
 
 args = parse_args()
+print("* Parameters:", args)
 torch.manual_seed(args.seed)
 
 # folder for logging checkpoints and metrics
