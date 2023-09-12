@@ -270,7 +270,7 @@ def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> T
     if args.save_proj:
         features = torch.zeros((n_samples, args.n_patches, net.h_dim))
         projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
-    for batch_id, (X, y) in tqdm(enumerate(data_loader)):
+    for batch_id, (X, y) in enumerate(tqdm(data_loader)):
         X = torch.stack(X, dim = 0).to(device)
         n_patches, bs, C, H, W = X.shape
         X = X.reshape(n_patches*bs, C, H, W)
