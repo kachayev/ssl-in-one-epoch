@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
-from utils import GBlur, LARSWrapper, Solarization, accuracy
+from utils import GBlur, LARSWrapper, accuracy
 
 
 class ContrastiveLearningViewGenerator:
@@ -30,7 +30,7 @@ class ContrastiveLearningViewGenerator:
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.2)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
             GBlur(p=0.1, seed=blur_seed),
-            transforms.RandomApply([Solarization()], p=0.1),
+            transforms.RandomSolarize(p=0.1),
             transforms.ToTensor(),  
             transforms.Normalize([0.5,0.5,0.5], [0.5,0.5,0.5])
         ])
@@ -215,7 +215,7 @@ train_dataloader = DataLoader(
     drop_last=True,
     num_workers=n_workers
 )
-test_dataset = load_dataset(args.dataset, train=True, n_patch=args.n_patches)
+test_dataset = load_dataset(args.dataset, train=False, n_patch=args.n_patches)
 test_dataloader = DataLoader(
     test_dataset,
     batch_size=args.bs,
@@ -321,7 +321,7 @@ def evaluate(
     ).to(device)
     optimizer = SGD(classifier.parameters(), lr=lr, momentum=0.9, weight_decay=5e-5)
     scheduler = CosineAnnealingLR(optimizer, 100)
-    
+
     # define loss function
     criterion = nn.CrossEntropyLoss()
 

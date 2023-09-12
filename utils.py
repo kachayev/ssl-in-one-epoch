@@ -265,13 +265,6 @@ class LARSWrapper:
             p.grad.data *= new_lr
 
 
-class Solarization:
-    """Solarization as a callable object."""
-
-    def __call__(self, img: Image) -> Image:
-        return ImageOps.solarize(img)
-
-
 class GBlur:
 
     def __init__(self, p, seed=0):
