@@ -255,7 +255,7 @@ def train(net: nn.Module, first_epoch: int = 0):
         raise ValueError(f"Unknown uniformity loss: {args.uniformity_loss}")
 
     for epoch in range(first_epoch, args.n_epoch):
-        for (X, _) in tqdm(train_dataloader):
+        for (X, _) in tqdm(train_dataloader, desc=f"Epoch {epoch+1:03d}/{args.n_epoch:03d}"):
             X = torch.stack(X, dim=0).to(device)
             n_patches, bs, C, H, W = X.shape
             X = X.reshape(n_patches*bs, C, H, W)
@@ -272,7 +272,7 @@ def train(net: nn.Module, first_epoch: int = 0):
         scheduler.step()
 
         print(
-            f"Epoch: {epoch:03d} | "
+            f"Epoch: {epoch+1:03d} | "
             f"Loss sim: {loss_sim.item():.5f} | "
             f"Loss unif: {loss_unif.item():.5f}"
         )
