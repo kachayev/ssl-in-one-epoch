@@ -30,8 +30,8 @@ class ContrastiveLearningViewGenerator:
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.2)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
             GBlur(p=0.1, seed=blur_seed),
-            transforms.RandomSolarize(p=0.1),
-            transforms.ToTensor(),  
+            transforms.RandomSolarize(threshold=192.0, p=0.1),
+            transforms.ToTensor(),
             transforms.Normalize([0.5,0.5,0.5], [0.5,0.5,0.5])
         ])
 
@@ -106,7 +106,7 @@ class TotalCodingRateLoss(nn.Module):
         return loss.mean()
 
 
-class SimilarityLoss(nn.Module):
+class MeanSimilarityLoss(nn.Module):
 
     def forward(self, z_proj):
         n_patches, bs, _ = z_proj.shape
@@ -114,6 +114,13 @@ class SimilarityLoss(nn.Module):
         z_proj = z_proj.reshape(n_patches*bs, -1)
         z_sim = F.cosine_similarity(z_proj, z_avg, dim=1).mean()
         return -z_sim
+
+
+class BarycenterSphericalUniformityLoss(nn.Module):
+
+    def forward(self, z_proj, t=2):
+        z_avg = z_proj.mean(dim=0)
+        return torch.pdist(z_avg, p=2).pow(2).mul(-t).exp().mean().log()
 
 
 # xxx(okachaeiev): i guess data_name should be enum
@@ -185,6 +192,8 @@ def parse_args():
                        help='use pretrained weights for the projection network')
     parser.add_argument('--h_dim', default=4096, type=int, help='patch embedding dimensionality')
     parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
+    parser.add_argument('--uniformity_loss', default='tcr', type='str',
+                        help='loss to use for enforcing output space uniformity (default: tcr)')
 
     args = parser.parse_args()
     return args
@@ -233,8 +242,13 @@ def train(net: nn.Module):
     scheduler = CosineAnnealingLR(optimizer, T_max=n_converge, eta_min=0, last_epoch=-1)
 
     # training criterion
-    similarity_loss = SimilarityLoss()
-    tcr_loss = TotalCodingRateLoss(eps=args.eps)
+    similarity_loss = MeanSimilarityLoss()
+    if args.uniformity_loss.lower() == 'tcr':
+        uniformity_reg = TotalCodingRateLoss(eps=args.eps)
+    elif args.uniformity_loss.lower() == 'vonmises':
+        uniformity_reg = BarycenterSphericalUniformityLoss()
+    else:
+        raise ValueError(f"Unknown uniformity loss: {args.uniformity_loss}")
 
     for epoch in range(args.n_epoch):
         for (X, _) in tqdm(train_dataloader):
@@ -244,8 +258,8 @@ def train(net: nn.Module):
             _, z_proj = net(X)
             z_proj = z_proj.reshape(n_patches, bs, -1)
             loss_sim = similarity_loss(z_proj)
-            loss_TCR = tcr_loss(z_proj)
-            loss = args.similarity_loss_weight*loss_sim + args.tcr_loss_weight*loss_TCR
+            loss_unif = uniformity_reg(z_proj)
+            loss = args.similarity_loss_weight*loss_sim + args.tcr_loss_weight*loss_unif
 
             net.zero_grad()
             optimizer.zero_grad()
@@ -256,7 +270,7 @@ def train(net: nn.Module):
         print(
             f"Epoch: {epoch:03d} | "
             f"Loss sim: {loss_sim.item():.5f} | "
-            f"Loss TCR: {loss_TCR.item():.5f}"
+            f"Loss unif: {loss_unif.item():.5f}"
         )
 
         # save checkpoint
