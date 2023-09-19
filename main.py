@@ -40,15 +40,15 @@ class ContrastiveLearningViewGenerator:
 
 
 def get_backbone(arch: str) -> Tuple[nn.Module, int]:
-    if arch == "resnet18-cifar":
+    if arch == 'resnet18-cifar':
         backbone = resnet18()
         backbone.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         backbone.maxpool = nn.Identity()
         backbone.fc = nn.Identity()
-    elif arch == "resnet18-imagenet":
+    elif arch == 'resnet18-imagenet':
         backbone = resnet18()
         backbone.fc = nn.Identity()
-    elif arch == "resnet18-tinyimagenet":
+    elif arch == 'resnet18-tinyimagenet':
         backbone = resnet18()
         backbone.avgpool = nn.AdaptiveAvgPool2d(1)
         backbone.fc = nn.Identity()
@@ -59,7 +59,7 @@ def get_backbone(arch: str) -> Tuple[nn.Module, int]:
 
 class Encoder(nn.Module):
 
-    def __init__(self, z_dim=1024, hidden_dim=4096, norm_p=2, backbone_arch="resnet18-cifar"):
+    def __init__(self, z_dim=1024, hidden_dim=4096, norm_p=2, backbone_arch='resnet18-cifar'):
         super().__init__()
         self.backbone, self.backbone_dim = get_backbone(backbone_arch)
         self.z_dim = z_dim
@@ -123,7 +123,6 @@ class BarycenterSphericalUniformityLoss(nn.Module):
         return torch.pdist(z_avg, p=2).pow(2).mul(-t).exp().mean().log()
 
 
-# xxx(okachaeiev): i guess data_name should be enum
 def load_dataset(
     dataset_name: str,
     train: bool = True,
@@ -165,8 +164,8 @@ def parse_args():
                         help='coefficient of tcr (default: 1.0)')
     parser.add_argument('--n_patches', type=int, default=100,
                         help='number of patches used in EMP-SSL (default: 100)')
-    # xxx(okachaiev): should be CHOICE type
     parser.add_argument('--arch', type=str, default="resnet18-cifar",
+                        choices=('resnet18-cifar', 'resnet18-imagenet', 'resnet18-tinyimagenet'),
                         help='network architecture (default: resnet18-cifar)')
     parser.add_argument('--bs', type=int, default=100,
                         help='batch size (default: 100)')
@@ -178,7 +177,7 @@ def parse_args():
                         help='experiment name (default: default)')
     parser.add_argument('--log_folder', type=str, default='logs/EMP-SSL-Training',
                         help='directory name (default: logs/EMP-SSL-Training)')
-    parser.add_argument('--dataset', type=str, default='cifar10',
+    parser.add_argument('--dataset', type=str, default='cifar10', choices=('cifar10', 'cifar100'),
                         help='data (default: cifar10)')
     parser.add_argument('--n_epoch', type=int, default=2,
                         help='max number of epochs to finish (default: 2)')
