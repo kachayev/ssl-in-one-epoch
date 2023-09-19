@@ -192,10 +192,12 @@ def parse_args():
                         help='use pretrained weights for the projection network')
     parser.add_argument('--h_dim', default=4096, type=int, help='patch embedding dimensionality')
     parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
-    parser.add_argument('--uniformity_loss', default='tcr', type=str,
+    parser.add_argument('--uniformity_loss', default='tcr', type=str, choices=('tcr', 'vonmises'),
                         help='loss to use for enforcing output space uniformity (default: tcr)')
-    parser.add_argument('--emb_pool', default='features', type=str,
+    parser.add_argument('--emb_pool', default='features', type=str, choices=('features', 'proj'),
                         help='which tensors to pool as a final representation (default: features)')
+    parser.add_argument('--resume', default=False, action='store_true',
+                        help='if training should be resumed from the latest checkpoint')
 
     args = parser.parse_args()
     return args
@@ -428,22 +430,13 @@ if __name__ == '__main__':
     # stage 1: train SSL encoder
     # check if there's a checkpoint that could be loaded,
     # otherwise run training
-    last_checkpoint = model_dir / f"{args.n_epoch-1}.pt"
-    if os.path.exists(last_checkpoint):
-        weights = torch.load(last_checkpoint, map_location=device)
-        net.load_state_dict(weights)
-        print(f"* Loaded SSL encoder from the checkpoint {last_checkpoint}")
-    else:
-        print("===> Training SSL encoder")
-        train(net)
-
     checkpoint_files = list(model_dir.glob(f"*.pt"))
     last_checkpoint = model_dir / f"{args.n_epoch-1}.pt"
     if os.path.exists(last_checkpoint):
         weights = torch.load(last_checkpoint, map_location=device)
         net.load_state_dict(weights)
         print(f"* Loaded SSL encoder from the checkpoint {last_checkpoint}")
-    elif checkpoint_files:
+    elif checkpoint_files and args.resume:
         last_epoch = max(int(file.name.replace(".pt", "")) for file in checkpoint_files)
         last_checkpoint = model_dir / f"{last_epoch}.pt"
         weights = torch.load(last_checkpoint, map_location=device)
