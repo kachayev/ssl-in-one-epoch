@@ -158,29 +158,23 @@ def load_dataset(
 def parse_args():
     parser = argparse.ArgumentParser(description='SSL-in-one-epoch')
 
-    parser.add_argument('--similarity_loss_weight', type=float, default=200.,
-                        help='coefficient of cosine similarity (default: 200.0)')
-    parser.add_argument('--tcr_loss_weight', type=float, default=1.,
-                        help='coefficient of tcr (default: 1.0)')
+    parser.add_argument('--exp_name', type=str, default='default',
+                        help='experiment name (default: default)')
+    parser.add_argument('--dataset', type=str, default='cifar10', choices=('cifar10', 'cifar100'),
+                        help='data (default: cifar10)')
     parser.add_argument('--n_patches', type=int, default=100,
                         help='number of patches used in EMP-SSL (default: 100)')
     parser.add_argument('--arch', type=str, default="resnet18-cifar",
                         choices=('resnet18-cifar', 'resnet18-imagenet', 'resnet18-tinyimagenet'),
                         help='network architecture (default: resnet18-cifar)')
+    parser.add_argument('--n_epochs', type=int, default=2,
+                        help='max number of epochs to finish (default: 2)')
     parser.add_argument('--bs', type=int, default=100,
                         help='batch size (default: 100)')
     parser.add_argument('--lr', type=float, default=0.3,
                         help='learning rate (default: 0.3)')
-    parser.add_argument('--eps', type=float, default=0.2,
-                        help='eps for TCR (default: 0.2)')
-    parser.add_argument('--exp_name', type=str, default='default',
-                        help='experiment name (default: default)')
     parser.add_argument('--log_folder', type=str, default='logs/EMP-SSL-Training',
                         help='directory name (default: logs/EMP-SSL-Training)')
-    parser.add_argument('--dataset', type=str, default='cifar10', choices=('cifar10', 'cifar100'),
-                        help='data (default: cifar10)')
-    parser.add_argument('--n_epoch', type=int, default=2,
-                        help='max number of epochs to finish (default: 2)')
     parser.add_argument('--device', type=str, default='cuda',
                         help='device to use for training (default: cuda)')
     parser.add_argument('--seed', type=int, default=42,
@@ -195,8 +189,14 @@ def parse_args():
                         help='loss to use for enforcing output space uniformity (default: tcr)')
     parser.add_argument('--emb_pool', default='features', type=str, choices=('features', 'proj'),
                         help='which tensors to pool as a final representation (default: features)')
+    parser.add_argument('--invariance_loss_weight', type=float, default=200.,
+                        help='coefficient of token similarity (default: 200.0)')
+    parser.add_argument('--uniformity_loss_weight', type=float, default=1.,
+                        help='coefficient of token uniformity (default: 1.0)')
     parser.add_argument('--resume', default=False, action='store_true',
                         help='if training should be resumed from the latest checkpoint')
+    parser.add_argument('--tcr_eps', type=float, default=0.2,
+                        help='eps for TCR (default: 0.2)')
 
     args = parser.parse_args()
     return args
@@ -241,20 +241,20 @@ def train(net: nn.Module, first_epoch: int = 0):
     # setup optimizer and scheduler
     optimizer = SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4, nesterov=True)
     optimizer = LARSWrapper(optimizer, eta=0.005, clip=True, exclude_bias_n_norm=True,)
-    n_converge = (len(train_dataloader) // args.bs) * args.n_epoch
+    n_converge = (len(train_dataloader) // args.bs) * args.n_epochs
     scheduler = CosineAnnealingLR(optimizer, T_max=n_converge, eta_min=0, last_epoch=-1)
 
     # training criterion
     similarity_loss = MeanSimilarityLoss()
     if args.uniformity_loss.lower() == 'tcr':
-        uniformity_reg = TotalCodingRateLoss(eps=args.eps)
+        uniformity_reg = TotalCodingRateLoss(eps=args.tcr_eps)
     elif args.uniformity_loss.lower() == 'vonmises':
         uniformity_reg = BarycenterSphericalUniformityLoss()
     else:
         raise ValueError(f"Unknown uniformity loss: {args.uniformity_loss}")
 
-    for epoch in range(first_epoch, args.n_epoch):
-        for (X, _) in tqdm(train_dataloader, desc=f"Epoch {epoch+1:03d}/{args.n_epoch:03d}"):
+    for epoch in range(first_epoch, args.n_epochs):
+        for (X, _) in tqdm(train_dataloader, desc=f"Epoch {epoch+1:03d}/{args.n_epochs:03d}"):
             X = torch.stack(X, dim=0).to(device)
             n_patches, bs, C, H, W = X.shape
             X = X.reshape(n_patches*bs, C, H, W)
@@ -262,7 +262,7 @@ def train(net: nn.Module, first_epoch: int = 0):
             z_proj = z_proj.reshape(n_patches, bs, -1)
             loss_sim = similarity_loss(z_proj)
             loss_unif = uniformity_reg(z_proj)
-            loss = args.similarity_loss_weight*loss_sim + args.tcr_loss_weight*loss_unif
+            loss = args.invariance_loss_weight*loss_sim + args.uniformity_loss_weight*loss_unif
 
             net.zero_grad()
             optimizer.zero_grad()
