@@ -430,7 +430,7 @@ if __name__ == '__main__':
     # check if there's a checkpoint that could be loaded,
     # otherwise run training
     checkpoint_files = list(model_dir.glob(f"*.pt"))
-    last_checkpoint = model_dir / f"{args.n_epoch-1}.pt"
+    last_checkpoint = model_dir / f"{args.n_epochs-1}.pt"
     if os.path.exists(last_checkpoint):
         weights = torch.load(last_checkpoint, map_location=device)
         net.load_state_dict(weights)
