@@ -236,7 +236,7 @@ test_dataloader = DataLoader(
 )
 
 
-def train(net: nn.Module):
+def train(net: nn.Module, first_epoch: int = 0):
     # setup optimizer and scheduler
     optimizer = SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4, nesterov=True)
     optimizer = LARSWrapper(optimizer, eta=0.005, clip=True, exclude_bias_n_norm=True,)
@@ -252,7 +252,7 @@ def train(net: nn.Module):
     else:
         raise ValueError(f"Unknown uniformity loss: {args.uniformity_loss}")
 
-    for epoch in range(args.n_epoch):
+    for epoch in range(first_epoch, args.n_epoch):
         for (X, _) in tqdm(train_dataloader):
             X = torch.stack(X, dim=0).to(device)
             n_patches, bs, C, H, W = X.shape
@@ -276,6 +276,7 @@ def train(net: nn.Module):
         )
 
         # save checkpoint
+        # xxx(okachaiev): for resume to work correctly we should also save optim and scheduler
         torch.save(net.state_dict(), model_dir / f"{epoch}.pt")
 
 
@@ -432,6 +433,23 @@ if __name__ == '__main__':
         weights = torch.load(last_checkpoint, map_location=device)
         net.load_state_dict(weights)
         print(f"* Loaded SSL encoder from the checkpoint {last_checkpoint}")
+    else:
+        print("===> Training SSL encoder")
+        train(net)
+
+    checkpoint_files = list(model_dir.glob(f"*.pt"))
+    last_checkpoint = model_dir / f"{args.n_epoch-1}.pt"
+    if os.path.exists(last_checkpoint):
+        weights = torch.load(last_checkpoint, map_location=device)
+        net.load_state_dict(weights)
+        print(f"* Loaded SSL encoder from the checkpoint {last_checkpoint}")
+    elif checkpoint_files:
+        last_epoch = max(int(file.name.replace(".pt", "")) for file in checkpoint_files)
+        last_checkpoint = model_dir / f"{last_epoch}.pt"
+        weights = torch.load(last_checkpoint, map_location=device)
+        net.load_state_dict(weights)
+        print(f"* Resume SSL encoder training from the checkpoint {last_checkpoint} for epoch {last_epoch}")
+        train(net, first_epoch=last_epoch+1)
     else:
         print("===> Training SSL encoder")
         train(net)
