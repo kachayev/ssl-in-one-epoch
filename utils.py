@@ -1,4 +1,4 @@
-from PIL import Image, ImageFilter, ImageOps
+from PIL import ImageFilter
 
 import torch
 from torch.optim.optimizer import Optimizer
@@ -27,7 +27,7 @@ class LARS(Optimizer):
     https://github.com/noahgolmant/pytorch-lars
     params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups
-        lr (float): base learning rate (\gamma_0)
+        lr (float): base learning rate
         lr (int): Length / Number of layers we want to apply weight decay, else do not compute
         momentum (float, optional): momentum factor (default: 0.9)
         use_nesterov (bool, optional): flag to use nesterov momentum (default: False)
@@ -73,9 +73,7 @@ class LARS(Optimizer):
             self.epoch += 1
 
         for group in self.param_groups:
-            weight_decay = group['weight_decay']
             momentum = group['momentum']
-            eta = group['eta']
             learning_rate = group['lr']
 
             # TODO: Hacky
@@ -116,7 +114,7 @@ class LARS(Optimizer):
                                               torch.Tensor([1.0]).to(device)).item()
 
                     scaled_lr = learning_rate * trust_ratio
-                    
+
                     grad_scaled = scaled_lr*grad
                     next_v.mul_(momentum).add_(grad_scaled)
 

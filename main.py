@@ -25,7 +25,7 @@ class ContrastiveLearningViewGenerator:
         self.rng_.manual_seed(seed)
         blur_seed = torch.randint(1 << 31, size=(1,), generator=self.rng_).item()
         self.transform_ = transforms.Compose([
-            transforms.RandomResizedCrop(32, scale=(0.25, 0.25), ratio=(1,1)),
+            transforms.RandomResizedCrop(32, scale=(0.25, 0.25), ratio=(1, 1)),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.2)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
@@ -42,14 +42,14 @@ class ContrastiveLearningViewGenerator:
 def get_backbone(arch: str) -> Tuple[nn.Module, int]:
     if arch == "resnet18-cifar":
         backbone = resnet18()
-        backbone.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False) 
+        backbone.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         backbone.maxpool = nn.Identity()
         backbone.fc = nn.Identity()
     elif arch == "resnet18-imagenet":
-        backbone = resnet18()    
+        backbone = resnet18()
         backbone.fc = nn.Identity()
     elif arch == "resnet18-tinyimagenet":
-        backbone = resnet18()    
+        backbone = resnet18()
         backbone.avgpool = nn.AdaptiveAvgPool2d(1)
         backbone.fc = nn.Identity()
     else:
@@ -57,11 +57,11 @@ def get_backbone(arch: str) -> Tuple[nn.Module, int]:
     return backbone, 512
 
 
-class Encoder(nn.Module): 
+class Encoder(nn.Module):
 
     def __init__(self, z_dim=1024, hidden_dim=4096, norm_p=2, backbone_arch="resnet18-cifar"):
         super().__init__()
-        self.backbone, self.backbone_dim  = get_backbone(backbone_arch)
+        self.backbone, self.backbone_dim = get_backbone(backbone_arch)
         self.z_dim = z_dim
         self.h_dim = hidden_dim
         self.norm_p = norm_p
@@ -92,7 +92,7 @@ class TotalCodingRateLoss(nn.Module):
 
     def _compute_discrimn_loss(self, W):
         """Discriminative Loss."""
-        p, m = W.shape  #[d, B]
+        p, m = W.shape  # [d, B]
         I = torch.eye(p, device=W.device)
         scalar = p / (m * self.eps)
         logdet = torch.logdet(I + scalar * W.matmul(W.T))
@@ -189,7 +189,7 @@ def parse_args():
     parser.add_argument('--save_proj', default=False, action='store_true',
                         help='include this flag to save patch embeddings and projections')
     parser.add_argument('--pretrained_proj', default=None, type=str,
-                       help='use pretrained weights for the projection network')
+                        help='use pretrained weights for the projection network')
     parser.add_argument('--h_dim', default=4096, type=int, help='patch embedding dimensionality')
     parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
     parser.add_argument('--uniformity_loss', default='tcr', type='str',
@@ -285,13 +285,13 @@ def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> T
         features = torch.zeros((n_samples, args.n_patches, net.h_dim))
         projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
     for batch_id, (X, y) in enumerate(tqdm(data_loader)):
-        X = torch.stack(X, dim = 0).to(device)
+        X = torch.stack(X, dim=0).to(device)
         n_patches, bs, C, H, W = X.shape
         X = X.reshape(n_patches*bs, C, H, W)
         with torch.no_grad():
             h, z_proj = net(X)
-        h = h.reshape(n_patches, bs, net.h_dim).permute(1,0,2)
-        z_proj = z_proj.reshape(n_patches, bs, net.z_dim).permute(1,0,2)
+        h = h.reshape(n_patches, bs, net.h_dim).permute(1, 0, 2)
+        z_proj = z_proj.reshape(n_patches, bs, net.z_dim).permute(1, 0, 2)
         embeddings[batch_id*bs:(batch_id+1)*bs, :] = h.mean(1)
         labels[batch_id*bs:(batch_id+1)*bs] = y
         if args.save_proj:
@@ -355,7 +355,7 @@ def evaluate(
             #  batch accuracy
             top1, = accuracy(logits, y, topk=(1,))
             train_top1[batch_id] = top1
-        scheduler.step() 
+        scheduler.step()
 
         # train accuracy
         avg_train_top1 = train_top1.mean().item()
@@ -368,7 +368,7 @@ def evaluate(
             X, y = X.to(device), y.to(device)
             with torch.no_grad():
                 logits = classifier(X)
-            top1, top5 = accuracy(logits, y, topk=(1,5))
+            top1, top5 = accuracy(logits, y, topk=(1, 5))
             test_top1[batch_id] = top1
             test_top5[batch_id] = top5
 
