@@ -192,7 +192,7 @@ def parse_args():
                         help='use pretrained weights for the projection network')
     parser.add_argument('--h_dim', default=4096, type=int, help='patch embedding dimensionality')
     parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
-    parser.add_argument('--uniformity_loss', default='tcr', type='str',
+    parser.add_argument('--uniformity_loss', default='tcr', type=str,
                         help='loss to use for enforcing output space uniformity (default: tcr)')
     parser.add_argument('--emb_pool', default='features', type=str,
                         help='which tensors to pool as a final representation (default: features)')
