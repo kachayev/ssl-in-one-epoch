@@ -194,6 +194,8 @@ def parse_args():
     parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
     parser.add_argument('--uniformity_loss', default='tcr', type='str',
                         help='loss to use for enforcing output space uniformity (default: tcr)')
+    parser.add_argument('--emb_pool', default='features', type=str,
+                        help='which tensors to pool as a final representation (default: features)')
 
     args = parser.parse_args()
     return args
@@ -279,7 +281,13 @@ def train(net: nn.Module):
 
 def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> TensorDataset:
     n_samples = len(data_loader)*args.bs
-    embeddings = torch.zeros((n_samples, net.h_dim))
+    if args.emb_pool.lower() == 'features':
+        emb_dim = net.h_dim
+    elif args.emb_pool.lower() == 'proj':
+        emb_dim = net.z_dim
+    else:
+        raise ValueError(f"Unknown embedding pooling is given: {args.emb_pool}")
+    embeddings = torch.zeros((n_samples, emb_dim))
     labels = torch.zeros((n_samples,))
     if args.save_proj:
         features = torch.zeros((n_samples, args.n_patches, net.h_dim))
@@ -292,7 +300,11 @@ def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> T
             h, z_proj = net(X)
         h = h.reshape(n_patches, bs, net.h_dim).permute(1, 0, 2)
         z_proj = z_proj.reshape(n_patches, bs, net.z_dim).permute(1, 0, 2)
-        embeddings[batch_id*bs:(batch_id+1)*bs, :] = h.mean(1)
+        if emb_dim == net.h_dim:
+            emb = h.mean(1)
+        else:
+            emb = z_proj.mean(1)
+        embeddings[batch_id*bs:(batch_id+1)*bs, :] = emb
         labels[batch_id*bs:(batch_id+1)*bs] = y
         if args.save_proj:
             features[batch_id*bs:(batch_id+1)*bs, :, :] = h
