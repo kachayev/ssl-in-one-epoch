@@ -440,7 +440,7 @@ if __name__ == '__main__':
         last_checkpoint = model_dir / f"{last_epoch}.pt"
         weights = torch.load(last_checkpoint, map_location=device)
         net.load_state_dict(weights)
-        print(f"* Resume SSL encoder training from the checkpoint {last_checkpoint} for epoch {last_epoch}")
+        print(f"* Resume SSL encoder training from the checkpoint {last_checkpoint} for epoch {last_epoch+1}")
         train(net, first_epoch=last_epoch+1)
     else:
         print("===> Training SSL encoder")
