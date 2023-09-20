@@ -452,7 +452,7 @@ if __name__ == '__main__':
     for subset, dataloader in [('train', train_dataloader), ('test', test_dataloader)]:
         # check if encoded tensor is ready, otherwise run through the network
         subset_file = artifacts_dir / f"{subset}.pt"
-        if os.path.exists(subset_file):
+        if os.path.exists(subset_file) and not args.resume:
             data = torch.load(subset_file, map_location='cpu')
             eval_datasets[subset] = TensorDataset(data['embeddings'], data['labels'].long())
             print(f"* Loaded encoded {subset} dataset from {subset_file}")
@@ -462,7 +462,7 @@ if __name__ == '__main__':
 
     # stage 3: train linear classifier to measure representation performance
     report_file = exp_dir / "linear_accuracy.json"
-    if os.path.exists(report_file):
+    if os.path.exists(report_file) and not args.resume:
         print(f"* Loading linear classifier performance from {report_file}")
         with open(report_file, "r") as fd:
             print(fd.read())
