@@ -1,5 +1,7 @@
 # Self-Supervised Learning in One Training Epoch
 
+[![ArXiv Link](http://img.shields.io/badge/paper-arxiv.2304.03977-B31B1B.svg)](https://arxiv.org/abs/2304.03977)
+
 This is an unofficial implementation of the paper "EMP-SSL: Towards Self-Supervised Learning in One Training Epoch", which you can access on [arXiv](https://arxiv.org/abs/2304.03977).
 
 Original repo could be found here: [EMP-SSL](https://github.com/tsb0601/EMP-SSL). The code here is cleaned up and simplified to facilitate faster iterations. Crucially a lot of operations are reimplemented to minimize re-allocations between GPU and RAM. Extra care was taken about random seeding to ensure that the results of each run are consistently reproducible.
@@ -68,34 +70,43 @@ Logs are, by default, stored in the `logs/EMP-SSL-Training/*`` directory. Fancy 
 Full list of options:
 
 ```shell
-usage: main.py [-h] [--similarity_loss_weight SIMILARITY_LOSS_WEIGHT] [--tcr_loss_weight TCR_LOSS_WEIGHT] [--n_patches N_PATCHES]
-               [--arch ARCH] [--bs BS] [--lr LR] [--eps EPS] [--exp_name EXP_NAME] [--log_folder LOG_FOLDER] [--dataset DATASET]
-               [--n_epoch N_EPOCH] [--device DEVICE] [--seed SEED]
+usage: main.py [-h] [--exp_name EXP_NAME] [--dataset {cifar10,cifar100}] [--n_patches N_PATCHES] [--arch {resnet18-cifar,resnet18-imagenet,resnet18-tinyimagenet}]
+               [--n_epochs N_EPOCHS] [--bs BS] [--lr LR] [--log_folder LOG_FOLDER] [--device DEVICE] [--seed SEED] [--save_proj] [--pretrained_proj PRETRAINED_PROJ]
+               [--h_dim H_DIM] [--z_dim Z_DIM] [--uniformity_loss {tcr,vonmises}] [--emb_pool {features,proj}] [--invariance_loss_weight INVARIANCE_LOSS_WEIGHT]
+               [--uniformity_loss_weight UNIFORMITY_LOSS_WEIGHT] [--resume] [--tcr_eps TCR_EPS]
 
 SSL-in-one-epoch
 
 optional arguments:
   -h, --help            show this help message and exit
-  --similarity_loss_weight SIMILARITY_LOSS_WEIGHT
-                        coefficient of cosine similarity (default: 200.0)
-  --tcr_loss_weight TCR_LOSS_WEIGHT
-                        coefficient of tcr (default: 1.0)
+  --exp_name EXP_NAME   experiment name (default: default)
+  --dataset {cifar10,cifar100}
+                        data (default: cifar10)
   --n_patches N_PATCHES
                         number of patches used in EMP-SSL (default: 100)
-  --arch ARCH           network architecture (default: resnet18-cifar)
+  --arch {resnet18-cifar,resnet18-imagenet,resnet18-tinyimagenet}
+                        network architecture (default: resnet18-cifar)
+  --n_epochs N_EPOCHS   max number of epochs to finish (default: 2)
   --bs BS               batch size (default: 100)
   --lr LR               learning rate (default: 0.3)
-  --eps EPS             eps for TCR (default: 0.2)
-  --exp_name EXP_NAME   experiment name (default: default)
   --log_folder LOG_FOLDER
                         directory name (default: logs/EMP-SSL-Training)
-  --dataset DATASET     data (default: cifar10)
-  --n_epoch N_EPOCH     max number of epochs to finish (default: 2)
   --device DEVICE       device to use for training (default: cuda)
   --seed SEED           random seed
   --save_proj           include this flag to save patch embeddings and projections
   --pretrained_proj PRETRAINED_PROJ
-                        use pre-trained weights for the projection network
+                        use pretrained weights for the projection network
+  --h_dim H_DIM         patch embedding dimensionality
+  --z_dim Z_DIM         projection dimensionality
+  --uniformity_loss {tcr,vonmises}
+                        loss to use for enforcing output space uniformity (default: tcr)
+  --emb_pool {features,proj}
+                        which tensors to pool as a final representation (default: features)
+  --invariance_loss_weight INVARIANCE_LOSS_WEIGHT
+                        coefficient of token similarity (default: 200.0)
+  --uniformity_loss_weight UNIFORMITY_LOSS_WEIGHT
+                        coefficient of token uniformity (default: 1.0)
+  --resume              if training should be resumed from the latest checkpoint
 ```
 
 
@@ -110,5 +121,7 @@ optional arguments:
 * LARS optimizer is critical. Without it, the top1 accuracy for `n_patches=50` on CIFAR10 is only 57.97%. This fact is worrisome without good theoretical understanding of what exactly leads to such performance gain when applying LARS. It seems one of the original goal was to find an SSL algorithm that doesn't depend drastically on details of the training regime.
 
 * Loading pre-trained weights for projection network and keeping it frozen yields 87.35-86.85% top1 accuracy on CIFAR10 with 50 patches (over multiple runs). This is somewhat surprising, I would expect the network to converge to roughly the same quality of the representation. As we don't have supervision signal, this might mean that existing projection network induce bias in the learning process w.r.t. to the loss function used.
+
+* It's possible to use mean projection as embedding with similar output performance (instead of relying on the activations from intermediate layer) with the following changes: a) increase `z_dim` to 4096, `h_dim` could be decrease to 2048; b) replace TCR loss with logarithm of the average pairwise Gaussian potential between mean embeddings, corresponding loss weight set to 1.5 instead of 200.0; c) increase number of training epochs to 10 while only training on 20-25 patches instead of 200 (yields faster training in wall time).
 
 (This list will be updated with more experiments.)
