@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 from typing import Tuple, Union
+import yaml
 
 import torch
 import torch.nn as nn
@@ -156,62 +157,82 @@ def load_dataset(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='SSL-in-one-epoch')
+    main_parser = argparse.ArgumentParser(description='SSL-in-one-epoch')
+    subparsers = main_parser.add_subparsers(help='available commands', dest='task')
 
-    parser.add_argument('--exp_name', type=str, default='default',
+    train_parser = subparsers.add_parser("train")
+    train_parser.add_argument('--exp_name', type=str, default='default',
                         help='experiment name (default: default)')
-    parser.add_argument('--dataset', type=str, default='cifar10', choices=('cifar10', 'cifar100'),
+    train_parser.add_argument('--dataset', type=str, default='cifar10', choices=('cifar10', 'cifar100'),
                         help='data (default: cifar10)')
-    parser.add_argument('--n_patches', type=int, default=100,
+    train_parser.add_argument('--n_patches', type=int, default=100,
                         help='number of patches used in EMP-SSL (default: 100)')
-    parser.add_argument('--arch', type=str, default="resnet18-cifar",
+    train_parser.add_argument('--arch', type=str, default="resnet18-cifar",
                         choices=('resnet18-cifar', 'resnet18-imagenet', 'resnet18-tinyimagenet'),
                         help='network architecture (default: resnet18-cifar)')
-    parser.add_argument('--n_epochs', type=int, default=2,
-                        help='max number of epochs to finish (default: 2)')
-    parser.add_argument('--bs', type=int, default=100,
-                        help='batch size (default: 100)')
-    parser.add_argument('--lr', type=float, default=0.3,
-                        help='learning rate (default: 0.3)')
-    parser.add_argument('--log_folder', type=str, default='logs/EMP-SSL-Training',
-                        help='directory name (default: logs/EMP-SSL-Training)')
-    parser.add_argument('--device', type=str, default='cuda',
-                        help='device to use for training (default: cuda)')
-    parser.add_argument('--seed', type=int, default=42,
-                        help='random seed')
-    parser.add_argument('--save_proj', default=False, action='store_true',
-                        help='include this flag to save patch embeddings and projections')
-    parser.add_argument('--pretrained_proj', default=None, type=str,
-                        help='use pretrained weights for the projection network')
-    parser.add_argument('--h_dim', default=4096, type=int, help='patch embedding dimensionality')
-    parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
-    parser.add_argument('--uniformity_loss', default='tcr', type=str, choices=('tcr', 'vonmises'),
-                        help='loss to use for enforcing output space uniformity (default: tcr)')
-    parser.add_argument('--emb_pool', default='features', type=str, choices=('features', 'proj'),
-                        help='which tensors to pool as a final representation (default: features)')
-    parser.add_argument('--invariance_loss_weight', type=float, default=200.,
-                        help='coefficient of token similarity (default: 200.0)')
-    parser.add_argument('--uniformity_loss_weight', type=float, default=1.,
-                        help='coefficient of token uniformity (default: 1.0)')
-    parser.add_argument('--resume', default=False, action='store_true',
-                        help='if training should be resumed from the latest checkpoint')
-    parser.add_argument('--tcr_eps', type=float, default=0.2,
-                        help='eps for TCR (default: 0.2)')
+    train_parser.add_argument('--n_epochs', type=int, default=2,
+                              help='max number of epochs to finish (default: 2)')
+    train_parser.add_argument('--bs', type=int, default=100,
+                              help='batch size (default: 100)')
+    train_parser.add_argument('--lr', type=float, default=0.3,
+                              help='learning rate (default: 0.3)')
+    train_parser.add_argument('--log_folder', type=str, default='logs/EMP-SSL-Training',
+                              help='directory name (default: logs/EMP-SSL-Training)')
+    train_parser.add_argument('--device', type=str, default='cuda',
+                              help='device to use for training (default: cuda)')
+    train_parser.add_argument('--seed', type=int, default=42, help='random seed')
+    train_parser.add_argument('--save_proj', default=False, action='store_true',
+                              help='include this flag to save patch embeddings and projections')
+    train_parser.add_argument('--pretrained_proj', default=None, type=str,
+                              help='use pretrained weights for the projection network')
+    train_parser.add_argument('--h_dim', default=4096, type=int, help='patch embedding dimensionality')
+    train_parser.add_argument('--z_dim', default=1024, type=int, help='projection dimensionality')
+    train_parser.add_argument('--uniformity_loss', default='tcr', type=str, choices=('tcr', 'vonmises'),
+                              help='loss to use for enforcing output space uniformity (default: tcr)')
+    train_parser.add_argument('--emb_pool', default='features', type=str, choices=('features', 'proj'),
+                              help='which tensors to pool as a final representation (default: features)')
+    train_parser.add_argument('--invariance_loss_weight', type=float, default=200.,
+                              help='coefficient of token similarity (default: 200.0)')
+    train_parser.add_argument('--uniformity_loss_weight', type=float, default=1.,
+                              help='coefficient of token uniformity (default: 1.0)')
+    train_parser.add_argument('--resume', default=False, action='store_true',
+                              help='if training should be resumed from the latest checkpoint')
+    train_parser.add_argument('--tcr_eps', type=float, default=0.2, help='eps for TCR (default: 0.2)')
 
-    args = parser.parse_args()
-    return args
+    resume_parser = subparsers.add_parser("resume")
+    resume_parser.add_argument('--exp_dir', type=str, required=True, metavar='DIR',
+                               help='path to the experiment folder')
+
+    return main_parser.parse_args()
 
 
 args = parse_args()
+if args.task == 'train':
+    exp_dir = Path(args.log_folder) / f"{args.exp_name}__numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
+elif args.task == 'resume':
+    exp_dir = Path(args.exp_dir)
+    hparams_file = exp_dir / 'hparams.yaml'
+    with open(hparams_file, 'r') as fd:
+        settings = yaml.safe_load(fd)
+    for k, v in settings['params'].items():
+        args.__setattr__(k, v)
+    print(f"* Loaded configuration settings from: {hparams_file}")
+    args.resume = True
+else:
+    raise ValueError(f"Unknown task: {args.task}")
+
 print("* Parameters:", args)
 torch.manual_seed(args.seed)
 
 # folder for logging checkpoints and metrics
-exp_dir = Path(args.log_folder) / f"{args.exp_name}__numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
-model_dir = exp_dir / "checkpoints"
+model_dir = exp_dir / 'checkpoints'
 model_dir.mkdir(parents=True, exist_ok=True)
-artifacts_dir = exp_dir / "artifacts"
+artifacts_dir = exp_dir / 'artifacts'
 artifacts_dir.mkdir(parents=True, exist_ok=True)
+hparams_file = exp_dir / 'hparams.yaml'
+if not hparams_file.exists():
+    with open(hparams_file, 'w') as fd:
+        yaml.dump({'params': vars(args)}, fd, default_flow_style=False, allow_unicode=True)
 
 # detect available device
 device = torch.device('cuda' if (args.device == 'cuda' and torch.cuda.is_available()) else 'cpu')

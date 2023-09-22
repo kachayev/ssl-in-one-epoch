@@ -46,7 +46,7 @@ $ conda install pytorch torchvision numpy tqdm Pillow -c pytorch
 To kick off an experiment, utilize the `main.py` script:
 
 ```shell
-$ python main.py --n_patches 20 --bs 100
+$ python main.py train --n_patches 20 --bs 100
 Files already downloaded and verified
 ===> Training SSL encoder
 500it [06:38,  1.26it/s]
@@ -70,7 +70,7 @@ Logs are, by default, stored in the `logs/EMP-SSL-Training/*`` directory. Fancy 
 Full list of options:
 
 ```shell
-usage: main.py [-h] [--exp_name EXP_NAME] [--dataset {cifar10,cifar100}] [--n_patches N_PATCHES] [--arch {resnet18-cifar,resnet18-imagenet,resnet18-tinyimagenet}]
+usage: main.py train [--exp_name EXP_NAME] [--dataset {cifar10,cifar100}] [--n_patches N_PATCHES] [--arch {resnet18-cifar,resnet18-imagenet,resnet18-tinyimagenet}]
                [--n_epochs N_EPOCHS] [--bs BS] [--lr LR] [--log_folder LOG_FOLDER] [--device DEVICE] [--seed SEED] [--save_proj] [--pretrained_proj PRETRAINED_PROJ]
                [--h_dim H_DIM] [--z_dim Z_DIM] [--uniformity_loss {tcr,vonmises}] [--emb_pool {features,proj}] [--invariance_loss_weight INVARIANCE_LOSS_WEIGHT]
                [--uniformity_loss_weight UNIFORMITY_LOSS_WEIGHT] [--resume] [--tcr_eps TCR_EPS]
@@ -108,6 +108,16 @@ optional arguments:
                         coefficient of token uniformity (default: 1.0)
   --resume              if training should be resumed from the latest checkpoint
 ```
+
+To resume training for existing experiment, use `resume` command:
+
+```shell
+python main.py resume --exp_dir logs/EMP-SSL-Training/default__numpatch100_bs100_lr0.3/
+* Loaded configuration settings from: logs/EMP-SSL-Training/default__numpatch100_bs100_lr0.3/hparams.yaml
+...
+```
+
+You can also pass 
 
 
 ## Additional Experimentation Insights
