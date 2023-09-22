@@ -1,7 +1,89 @@
+from enum import Enum
+from pathlib import Path
 from PIL import ImageFilter
 
 import torch
 from torch.optim.optimizer import Optimizer
+
+
+class Summary(Enum):
+    NONE = 0
+    AVERAGE = 1
+    SUM = 2
+    COUNT = 3
+
+
+class AverageMeter:
+    """Computes and stores the average and current value"""
+    def __init__(self, name, fmt=':f', summary_type=Summary.AVERAGE):
+        self.name = name
+        self.fmt = fmt
+        self.summary_type = summary_type
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def all_reduce(self):
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+        total = torch.tensor([self.sum, self.count], dtype=torch.float32, device=device)
+        dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
+        self.sum, self.count = total.tolist()
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+
+    def summary(self):
+        fmtstr = ''
+        if self.summary_type is Summary.NONE:
+            fmtstr = ''
+        elif self.summary_type is Summary.AVERAGE:
+            fmtstr = '{name} {avg:.3f}'
+        elif self.summary_type is Summary.SUM:
+            fmtstr = '{name} {sum:.3f}'
+        elif self.summary_type is Summary.COUNT:
+            fmtstr = '{name} {count:.3f}'
+        else:
+            raise ValueError(f"Invalid summary type: {self.summary_type}")
+
+        return fmtstr.format(**self.__dict__)
+
+
+class ProgressMeter:
+
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+        
+    def display_summary(self):
+        entries = [" *"]
+        entries += [meter.summary() for meter in self.meters]
+        print(' '.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
 @torch.no_grad()
@@ -276,3 +358,49 @@ class GBlur:
             return img.filter(ImageFilter.GaussianBlur(sigma))
         else:
             return img
+
+
+def human_readable_size(size, decimal_places=2):
+    for unit in ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']:
+        if size < 1024.0 or unit == 'PiB':
+            break
+        size /= 1024.0
+    return f"{size:.{decimal_places}f} {unit}"
+
+
+def cleanup_old_checkpoints(exp_dir: Path, keep: int = 1, no_prompt: bool = False) -> None:
+    old_checkpoints = {}
+    total_size = 0
+    for folder in exp_dir.glob('*/checkpoints'):
+        checkpoints = sorted(int(file.name.replace(".pt", "")) for file in folder.glob('*.pt'))
+        if len(checkpoints) > keep:
+            to_remove = [folder / f"{chkp}.pt" for chkp in checkpoints[:-keep]]
+            old_checkpoints.update(to_remove)
+            total_size += sum(f.stat().st_size for f in to_remove)
+
+    if not old_checkpoints:
+        print('* Nothing to remove')
+        return
+
+    if not no_prompt:
+        print(f"Cleanup is about to delete {len(old_checkpoints)} files, "
+                f"total size: {human_readable_size(total_size)}. Proceed? [Y/n] ")
+        choice = input()
+    else:
+        choice = "Y"
+
+    if choice.strip() != "Y":
+        print('* OK, bailing out')
+        return
+
+    cleaned_space = 0
+    print(f"===> Removing old checkpoints...")
+    for checkpoint_file in tqdm(old_checkpoints):
+        file_size = checkpoint_file.stat().st_size
+        try:
+            checkpoint_file.unlink()
+        except Exception as exp:
+            print(f"Failed to remove {checkpoint_file}, caused by {exp}")
+        else:
+            cleaned_space += file_size
+    print(f"Cleaned up: {human_readable_size(cleaned_space)}")

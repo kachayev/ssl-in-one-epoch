@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
-from utils import GBlur, LARSWrapper, accuracy
+from utils import GBlur, LARSWrapper, accuracy, cleanup_old_checkpoints
 
 
 class ContrastiveLearningViewGenerator:
@@ -201,10 +201,17 @@ def parse_args():
                               help='if training should be resumed from the latest checkpoint')
     train_parser.add_argument('--tcr_eps', type=float, default=0.2, help='eps for TCR (default: 0.2)')
 
-    # xxx(okachaiev): add command to cleanup old checkpoints, as they tend to grow large
-    resume_parser = subparsers.add_parser("resume")
+    resume_parser = subparsers.add_parser('resume')
     resume_parser.add_argument('--exp_dir', type=str, required=True, metavar='DIR',
                                help='path to the experiment folder')
+
+    cleanup_parser = subparsers.add_parser('cleanup')
+    cleanup_parser.add_argument('--log_folder', type=str, default='logs/EMP-SSL-Training',
+                                help='directory name (default: logs/EMP-SSL-Training)')
+    cleanup_parser.add_argument('--keep', type=int, default=1,
+                                help='how many checkpoints to keep (default: 1)')
+    cleanup_parser.add_argument('-y', action='store_true', default=False,
+                                help='suppress interactive prompt')
 
     return main_parser.parse_args()
 
@@ -222,6 +229,10 @@ elif args.task == 'resume':
         args.__setattr__(k, v)
     print(f"* Loaded configuration settings from: {hparams_file}")
     args.resume = True
+elif args.task == 'cleanup':
+    exp_dir = Path(args.log_folder)
+    cleanup_old_checkpoints(exp_dir, keep=args.keep, no_prompt=args.y)
+    exit(0)
 else:
     raise ValueError(f"Unknown task: {args.task}")
 
