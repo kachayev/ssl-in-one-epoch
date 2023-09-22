@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 from tqdm import tqdm
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 import yaml
 
 import torch
@@ -30,6 +30,8 @@ class ContrastiveLearningViewGenerator:
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.4, 0.2)], p=0.8),
             transforms.RandomGrayscale(p=0.2),
+            # xxx(okachaiev): double check if randomization for gaussian blur
+            #                 is critical for downstream performance
             GBlur(p=0.1, seed=blur_seed),
             transforms.RandomSolarize(threshold=192.0, p=0.1),
             transforms.ToTensor(),
@@ -258,12 +260,17 @@ test_dataloader = DataLoader(
 )
 
 
-def train(net: nn.Module, first_epoch: int = 0):
+def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = None):
     # setup optimizer and scheduler
     optimizer = SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=1e-4, nesterov=True)
     optimizer = LARSWrapper(optimizer, eta=0.005, clip=True, exclude_bias_n_norm=True,)
     n_converge = (len(train_dataloader) // args.bs) * args.n_epochs
     scheduler = CosineAnnealingLR(optimizer, T_max=n_converge, eta_min=0, last_epoch=-1)
+
+    if prev_state is not None:
+        net.load_state_dict(prev_state['net'])
+        optimizer.load_state_dict(prev_state['optimizer'])
+        scheduler.load_state_dict(prev_state['scheduler'])
 
     # training criterion
     similarity_loss = MeanSimilarityLoss()
@@ -298,8 +305,12 @@ def train(net: nn.Module, first_epoch: int = 0):
         )
 
         # save checkpoint
-        # xxx(okachaiev): for resume to work correctly we should also save optim and scheduler
-        torch.save(net.state_dict(), model_dir / f"{epoch}.pt")
+        torch.save({
+            'net': net.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
+            'epoch': epoch + 1,
+        }, model_dir / f"{epoch}.pt")
 
 
 def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> TensorDataset:
@@ -454,15 +465,15 @@ if __name__ == '__main__':
     last_checkpoint = model_dir / f"{args.n_epochs-1}.pt"
     if os.path.exists(last_checkpoint):
         weights = torch.load(last_checkpoint, map_location=device)
-        net.load_state_dict(weights)
+        net.load_state_dict(weights['net'])
+        # no need to load optimizer and scheduler
         print(f"* Loaded SSL encoder from the checkpoint {last_checkpoint}")
     elif checkpoint_files and args.resume:
         last_epoch = max(int(file.name.replace(".pt", "")) for file in checkpoint_files)
         last_checkpoint = model_dir / f"{last_epoch}.pt"
         weights = torch.load(last_checkpoint, map_location=device)
-        net.load_state_dict(weights)
-        print(f"* Resume SSL encoder training from the checkpoint {last_checkpoint} for epoch {last_epoch+1}")
-        train(net, first_epoch=last_epoch+1)
+        print(f"===> Resume SSL encoder training from the checkpoint {last_checkpoint} for epoch {last_epoch+1}")
+        train(net, first_epoch=last_epoch+1, prev_state=weights)
     else:
         print("===> Training SSL encoder")
         train(net)
