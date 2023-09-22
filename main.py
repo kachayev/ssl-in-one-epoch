@@ -201,6 +201,7 @@ def parse_args():
                               help='if training should be resumed from the latest checkpoint')
     train_parser.add_argument('--tcr_eps', type=float, default=0.2, help='eps for TCR (default: 0.2)')
 
+    # xxx(okachaiev): add command to cleanup old checkpoints, as they tend to grow large
     resume_parser = subparsers.add_parser("resume")
     resume_parser.add_argument('--exp_dir', type=str, required=True, metavar='DIR',
                                help='path to the experiment folder')
@@ -217,6 +218,7 @@ elif args.task == 'resume':
     with open(hparams_file, 'r') as fd:
         settings = yaml.safe_load(fd)
     for k, v in settings['params'].items():
+        # xxx(okachaiev): maybe introduce a quick way to re-write a value? (mostly for n_epochs) :thinking:
         args.__setattr__(k, v)
     print(f"* Loaded configuration settings from: {hparams_file}")
     args.resume = True
@@ -282,6 +284,8 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
         raise ValueError(f"Unknown uniformity loss: {args.uniformity_loss}")
 
     for epoch in range(first_epoch, args.n_epochs):
+        # xxx(okachaiev): it's interesting that within an unsupervised learning regime
+        #                 it should be okay to through test datasets their as well, right? :thinking:
         for (X, _) in tqdm(train_dataloader, desc=f"Epoch {epoch+1:03d}/{args.n_epochs:03d}"):
             X = torch.stack(X, dim=0).to(device)
             n_patches, bs, C, H, W = X.shape
@@ -355,7 +359,7 @@ def evaluate(
     train_data,
     test_data,
     report_file: Union[str, os.PathLike],
-    n_epochs: int = 100,
+    n_epochs: int = 100, # xxx(okachaiev): this should be an argument
     lr: float = 0.0075,
     batch_size: int = 100,
 ):
@@ -447,6 +451,7 @@ def evaluate(
 
 
 if __name__ == '__main__':
+    # xxx(okachaiev): report the size of the model
     net = Encoder(z_dim=args.z_dim, hidden_dim=args.h_dim, backbone_arch=args.arch).to(device)
     if args.pretrained_proj:
         net_weights = net.state_dict()
@@ -479,6 +484,7 @@ if __name__ == '__main__':
         train(net)
 
     # stage 2: encode images provided by train/test data loaders
+    # xxx(okachaiev): not sure we actually need to store those artifacts
     net.eval()
     eval_datasets = {}
     for subset, dataloader in [('train', train_dataloader), ('test', test_dataloader)]:
@@ -493,6 +499,7 @@ if __name__ == '__main__':
             eval_datasets[subset] = encode(net, dataloader, subset_file)
 
     # stage 3: train linear classifier to measure representation performance
+    # xxx(okachaiev): find a way to run evaluation per N epochs (configurable)
     report_file = exp_dir / "linear_accuracy.json"
     if os.path.exists(report_file) and not args.resume:
         print(f"* Loading linear classifier performance from {report_file}")
