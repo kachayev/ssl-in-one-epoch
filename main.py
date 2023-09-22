@@ -174,10 +174,14 @@ def parse_args():
                         help='network architecture (default: resnet18-cifar)')
     train_parser.add_argument('--n_epochs', type=int, default=2,
                               help='max number of epochs to finish (default: 2)')
+    train_parser.add_argument('--n_eval_epochs', type=int, default=100,
+                              help='max number of epochs for linear prob evaluation (default: 100)')
     train_parser.add_argument('--bs', type=int, default=100,
                               help='batch size (default: 100)')
     train_parser.add_argument('--lr', type=float, default=0.3,
                               help='learning rate (default: 0.3)')
+    train_parser.add_argument('--eval_lr', type=float, default=0.0075,
+                              help='learning rate for linear prob evaluation (default: 0.0075)')
     train_parser.add_argument('--log_folder', type=str, default='logs/EMP-SSL-Training',
                               help='directory name (default: logs/EMP-SSL-Training)')
     train_parser.add_argument('--device', type=str, default='cuda',
@@ -370,7 +374,7 @@ def evaluate(
     train_data,
     test_data,
     report_file: Union[str, os.PathLike],
-    n_epochs: int = 100, # xxx(okachaiev): this should be an argument
+    n_epochs: int = 100,
     lr: float = 0.0075,
     batch_size: int = 100,
 ):
@@ -379,14 +383,14 @@ def evaluate(
         batch_size=batch_size,
         shuffle=True,
         drop_last=True,
-        num_workers=2
+        num_workers=1,
     )
     test_loader = DataLoader(
         test_data,
         batch_size=batch_size,
         shuffle=True,
         drop_last=False,
-        num_workers=2
+        num_workers=1,
     )
 
     # setup model, optimizer, and scheduler
@@ -518,4 +522,11 @@ if __name__ == '__main__':
             print(fd.read())
     else:
         print("===> Fitting linear classifier")
-        evaluate(eval_datasets['train'], eval_datasets['test'], report_file)
+        # xxx(okachaiev): would be interesting to have separate task for eval
+        evaluate(
+            eval_datasets['train'],
+            eval_datasets['test'],
+            report_file,
+            n_epochs=args.n_eval_epochs,
+            lr=args.eval_lr,
+        )
