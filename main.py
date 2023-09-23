@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from tqdm import tqdm
 from typing import Optional, Tuple, Union
-import yaml
 
 import torch
 import torch.nn as nn
@@ -15,7 +14,14 @@ from torch.utils.data import DataLoader, TensorDataset
 from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
-from utils import GBlur, LARSWrapper, accuracy, cleanup_old_checkpoints
+from utils import (
+    GBlur,
+    LARSWrapper,
+    accuracy,
+    cleanup_old_checkpoints,
+    load_config_into,
+    log_exp_config,
+)
 
 
 class ContrastiveLearningViewGenerator:
@@ -164,14 +170,15 @@ def parse_args():
 
     train_parser = subparsers.add_parser("train")
     train_parser.add_argument('--exp_name', type=str, default='default',
-                        help='experiment name (default: default)')
-    train_parser.add_argument('--dataset', type=str, default='cifar10', choices=('cifar10', 'cifar100'),
-                        help='data (default: cifar10)')
+                              help='experiment name (default: default)')
+    train_parser.add_argument('--dataset', type=str, default='cifar10',
+                              choices=('cifar10', 'cifar100'),
+                              help='data (default: cifar10)')
     train_parser.add_argument('--n_patches', type=int, default=100,
-                        help='number of patches used in EMP-SSL (default: 100)')
+                              help='number of patches used in EMP-SSL (default: 100)')
     train_parser.add_argument('--arch', type=str, default="resnet18-cifar",
-                        choices=('resnet18-cifar', 'resnet18-imagenet', 'resnet18-tinyimagenet'),
-                        help='network architecture (default: resnet18-cifar)')
+                              choices=('resnet18-cifar', 'resnet18-imagenet', 'resnet18-tinyimagenet'),
+                              help='network architecture (default: resnet18-cifar)')
     train_parser.add_argument('--n_epochs', type=int, default=2,
                               help='max number of epochs to finish (default: 2)')
     train_parser.add_argument('--n_eval_epochs', type=int, default=100,
@@ -204,6 +211,8 @@ def parse_args():
     train_parser.add_argument('--resume', default=False, action='store_true',
                               help='if training should be resumed from the latest checkpoint')
     train_parser.add_argument('--tcr_eps', type=float, default=0.2, help='eps for TCR (default: 0.2)')
+    train_parser.add_argument('--config_from', type=str, default=None, metavar='DIR',
+                              help='copy default configuration from existing experiment')
 
     resume_parser = subparsers.add_parser('resume')
     resume_parser.add_argument('--exp_dir', type=str, required=True, metavar='DIR',
@@ -223,15 +232,15 @@ def parse_args():
 args = parse_args()
 if args.task == 'train':
     exp_dir = Path(args.log_folder) / f"{args.exp_name}__numpatch{args.n_patches}_bs{args.bs}_lr{args.lr}"
+    if args.config_from:
+        config_file = Path(args.config_from) / 'hparams.yaml'
+        load_config_into(config_file, args)
+        print(f"* Loaded configuration settings from: {config_file}")
 elif args.task == 'resume':
     exp_dir = Path(args.exp_dir)
-    hparams_file = exp_dir / 'hparams.yaml'
-    with open(hparams_file, 'r') as fd:
-        settings = yaml.safe_load(fd)
-    for k, v in settings['params'].items():
-        # xxx(okachaiev): maybe introduce a quick way to re-write a value? (mostly for n_epochs) :thinking:
-        args.__setattr__(k, v)
-    print(f"* Loaded configuration settings from: {hparams_file}")
+    config_file = exp_dir / 'hparams.yaml'
+    load_config_into(config_file, args)
+    print(f"* Loaded configuration settings from: {config_file}")
     args.resume = True
 elif args.task == 'cleanup':
     exp_dir = Path(args.log_folder)
@@ -248,10 +257,8 @@ model_dir = exp_dir / 'checkpoints'
 model_dir.mkdir(parents=True, exist_ok=True)
 artifacts_dir = exp_dir / 'artifacts'
 artifacts_dir.mkdir(parents=True, exist_ok=True)
-hparams_file = exp_dir / 'hparams.yaml'
-if not hparams_file.exists():
-    with open(hparams_file, 'w') as fd:
-        yaml.dump({'params': vars(args)}, fd, default_flow_style=False, allow_unicode=True)
+config_file = exp_dir / 'hparams.yaml'
+log_exp_config(config_file, args)
 
 # detect available device
 device = torch.device('cuda' if (args.device == 'cuda' and torch.cuda.is_available()) else 'cpu')

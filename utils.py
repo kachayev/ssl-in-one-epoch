@@ -1,6 +1,8 @@
+from argparse import Namespace
 from enum import Enum
 from pathlib import Path
 from PIL import ImageFilter
+import yaml
 
 import torch
 from torch.optim.optimizer import Optimizer
@@ -404,3 +406,17 @@ def cleanup_old_checkpoints(exp_dir: Path, keep: int = 1, no_prompt: bool = Fals
         else:
             cleaned_space += file_size
     print(f"Cleaned up: {human_readable_size(cleaned_space)}")
+
+
+def load_config_into(config_file: Path, args: Namespace) -> None:
+    with open(config_file, 'r') as fd:
+        settings = yaml.safe_load(fd)
+    for k, v in settings['params'].items():
+        if args.__getattr__(k, None) is None:
+            args.__setattr__(k, v)
+
+
+def log_exp_config(config_file: Path, args: Namespace, force_override: bool = False) -> None:
+    if force_override or not config_file.exists():
+        with open(config_file, 'w') as fd:
+            yaml.dump({'params': vars(args)}, fd, default_flow_style=False, allow_unicode=True)
