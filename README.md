@@ -134,4 +134,6 @@ You can also pass
 
 * It's possible to use mean projection as embedding with similar output performance (instead of relying on the activations from intermediate layer) with the following changes: a) increase `z_dim` to 4096, `h_dim` could be decrease to 2048; b) replace TCR loss with logarithm of the average pairwise Gaussian potential between mean embeddings, corresponding loss weight set to 1.5 instead of 200.0; c) increase number of training epochs to 10 while only training on 20-25 patches instead of 200 (yields faster training in wall time).
 
+* Testing limits of the bottleneck: `h_dim=256` (using mean token embedding as output, `z_dim` set to 4096, and von Mises uniformity loss) gives 84+% top1 accuracy on 20 patches. What's interesting that `n_patches=2` seems to be working just fine as well.
+
 (This list will be updated with more experiments.)
