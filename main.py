@@ -429,13 +429,14 @@ def evaluate(
     # define loss function
     criterion = nn.CrossEntropyLoss()
 
+    train_accuracy = torch.zeros(n_epochs)
     test_accuracy = torch.zeros(n_epochs)
     test_accuracy_top5 = torch.zeros(n_epochs)
-    for epoch in range(n_epochs):
+    for epoch in tqdm(n_epochs, desc="Fitting linear prob"):
         train_top1 = torch.zeros(len(train_loader))
         # train
         classifier.train()
-        for batch_id, (X, y) in enumerate(tqdm(train_loader, desc="Fitting linear prob")):
+        for batch_id, (X, y) in enumerate(train_loader):
             X, y = X.to(device), y.to(device)
             logits = classifier(X)
             loss = criterion(logits, y)
@@ -446,9 +447,6 @@ def evaluate(
             top1, = accuracy(logits, y, topk=(1,))
             train_top1[batch_id] = top1
         scheduler.step()
-
-        # train accuracy
-        avg_train_top1 = train_top1.mean().item()
 
         # eval on test dataset now
         test_top1 = torch.zeros(len(test_loader))
@@ -462,22 +460,13 @@ def evaluate(
             test_top1[batch_id] = top1
             test_top5[batch_id] = top5
 
-        avg_test_top1 = test_top1.mean().item()
-        avg_test_top5 = test_top5.mean().item()
-
-        test_accuracy[epoch] = avg_test_top1
-        test_accuracy_top5[epoch] = avg_test_top5
-
-        print(
-            f"Epoch: {epoch:03d} | "
-            f"Top1 (train): {avg_train_top1*100:.4f} | "
-            f"Top1 (test): {avg_test_top1*100:.4f} | "
-            f"Top5 (test): {avg_test_top5*100:.4f}"
-        )
-
+        train_accuracy[epoch] = train_top1.mean().item()
+        test_accuracy[epoch] = test_top1.mean().item()
+        test_accuracy_top5[epoch] = test_top5.mean().item()
     # report best performance
     report = ' | '.join([
         f"Prob after (n_epochs): {age_n_epochs}",
+        f"Best top1 (train): {train_accuracy.max().item()*100:.4f}",
         f"Init top1 (test): {test_accuracy[0].item()*100:.4f}",
         f"Best top1 (test): {test_accuracy.max().item()*100:.4f}",
         f"Last top1 (test): {test_accuracy[-1].item()*100:.4f}",
