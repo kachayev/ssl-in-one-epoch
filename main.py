@@ -471,7 +471,7 @@ def evaluate(
         f"Last top1 (test): {test_accuracy[-1].item()*100:.4f}",
     ])
     print(report)
-    with open(report_file, "w+") as fd:
+    with open(report_file, "a") as fd:
         fd.write(report + '\n')
 
 
