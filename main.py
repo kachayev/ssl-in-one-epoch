@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 from pathlib import Path
 from tqdm import tqdm
@@ -213,6 +212,8 @@ def parse_args():
     train_parser.add_argument('--tcr_eps', type=float, default=0.2, help='eps for TCR (default: 0.2)')
     train_parser.add_argument('--config_from', type=str, default=None, metavar='DIR',
                               help='copy default configuration from existing experiment')
+    train_parser.add_argument('--eval_freq', type=int, default=10, metavar='N',
+                              help='fit linear prob after N epochs')
 
     resume_parser = subparsers.add_parser('resume')
     resume_parser.add_argument('--exp_dir', type=str, required=True, metavar='DIR',
@@ -327,7 +328,8 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
         print(
             f"Epoch: {epoch+1:03d} | "
             f"Loss sim: {loss_sim.item():.5f} | "
-            f"Loss unif: {loss_unif.item():.5f}"
+            f"Loss unif: {loss_unif.item():.5f} | "
+            f"Loss total: {(loss_sim.item() + loss_unif.item()):.5f}"
         )
 
         # save checkpoint
@@ -338,8 +340,24 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
             'epoch': epoch + 1,
         }, model_dir / f"{epoch}.pt")
 
+        if (epoch+1) % args.eval_freq == 0 or (epoch+1) == args.n_epochs:
+            net.eval()
+            eval_datasets = {}
+            for subset, dataloader in [('train', train_dataloader), ('test', test_dataloader)]:
+                print(f"===> Encoding '{subset}' dataset for evaluation")
+                eval_datasets[subset] = encode(net, dataloader)
 
-def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> TensorDataset:
+            print("===> Fitting linear classifier")
+            evaluate(
+                eval_datasets['train'],
+                eval_datasets['test'],
+                exp_dir / "linear_accuracy.txt",
+                n_epochs=args.n_eval_epochs,
+                lr=args.eval_lr,
+            )
+
+
+def encode(net: Encoder, data_loader: DataLoader) -> TensorDataset:
     n_samples = len(data_loader)*args.bs
     if args.emb_pool.lower() == 'features':
         emb_dim = net.h_dim
@@ -372,7 +390,6 @@ def encode(net: Encoder, data_loader, subset_file: Union[str, os.PathLike]) -> T
     artifact = {'embeddings': embeddings, 'labels': labels}
     if args.save_proj:
         artifact.update({'features': features, 'projections': projections})
-    torch.save(artifact, subset_file)
     return TensorDataset(embeddings, labels.long())
 
 
@@ -384,6 +401,7 @@ def evaluate(
     n_epochs: int = 100,
     lr: float = 0.0075,
     batch_size: int = 100,
+    age_n_epochs: int = 0,
 ):
     train_loader = DataLoader(
         train_data,
@@ -417,7 +435,7 @@ def evaluate(
         train_top1 = torch.zeros(len(train_loader))
         # train
         classifier.train()
-        for batch_id, (X, y) in enumerate(train_loader):
+        for batch_id, (X, y) in enumerate(tqdm(train_loader, desc="Fitting linear prob")):
             X, y = X.to(device), y.to(device)
             logits = classifier(X)
             loss = criterion(logits, y)
@@ -458,18 +476,15 @@ def evaluate(
         )
 
     # report best performance
-    print(
-        f"Best top1 (test): {test_accuracy.max().item()*100:.4f} | "
-        f"Last top1 (test): {test_accuracy[-1].item()*100:.4f}"
-    )
-    # xxx(okachaiev): it might be better to save artifact outside of the
-    # function in a main "experiment" loop. or switch to a summary writer
-    # like TB or DVC
-    with open(report_file, "w") as fd:
-        json.dump({
-            "top1 (test)": test_accuracy.max().item()*100,
-            "top5 (test)": test_accuracy_top5.max().item()*100,
-        }, fd, indent=4)
+    report = ' | '.join([
+        f"Prob after (n_epochs): {age_n_epochs}",
+        f"Init top1 (test): {test_accuracy[0].item()*100:.4f}",
+        f"Best top1 (test): {test_accuracy.max().item()*100:.4f}",
+        f"Last top1 (test): {test_accuracy[-1].item()*100:.4f}",
+    ])
+    print(report)
+    with open(report_file, "w+") as fd:
+        fd.write(report + '\n')
 
 
 if __name__ == '__main__':
@@ -485,16 +500,19 @@ if __name__ == '__main__':
         for params in net.projection.parameters():
             params.requires_grad = False
 
-    # stage 1: train SSL encoder
+    # train SSL encoder
     # check if there's a checkpoint that could be loaded,
     # otherwise run training
     checkpoint_files = list(model_dir.glob(f"*.pt"))
     last_checkpoint = model_dir / f"{args.n_epochs-1}.pt"
     if os.path.exists(last_checkpoint):
-        weights = torch.load(last_checkpoint, map_location=device)
-        net.load_state_dict(weights['net'])
-        # no need to load optimizer and scheduler
-        print(f"* Loaded SSL encoder from the checkpoint {last_checkpoint}")
+        print(f"🚀 All done! The experiment has taken its final bow.")
+        report_file = exp_dir / "linear_accuracy.txt"
+        if os.path.exists(report_file):
+            print('Here is performance report:\n', '-'*80)
+            with open(report_file, "r") as fd:
+                print(fd.read())
+        exit(0)
     elif checkpoint_files and args.resume:
         last_epoch = max(int(file.name.replace(".pt", "")) for file in checkpoint_files)
         last_checkpoint = model_dir / f"{last_epoch}.pt"
@@ -504,36 +522,3 @@ if __name__ == '__main__':
     else:
         print("===> Training SSL encoder")
         train(net)
-
-    # stage 2: encode images provided by train/test data loaders
-    # xxx(okachaiev): not sure we actually need to store those artifacts
-    net.eval()
-    eval_datasets = {}
-    for subset, dataloader in [('train', train_dataloader), ('test', test_dataloader)]:
-        # check if encoded tensor is ready, otherwise run through the network
-        subset_file = artifacts_dir / f"{subset}.pt"
-        if os.path.exists(subset_file) and not args.resume:
-            data = torch.load(subset_file, map_location='cpu')
-            eval_datasets[subset] = TensorDataset(data['embeddings'], data['labels'].long())
-            print(f"* Loaded encoded {subset} dataset from {subset_file}")
-        else:
-            print(f"===> Encoding '{subset}' dataset for evaluation")
-            eval_datasets[subset] = encode(net, dataloader, subset_file)
-
-    # stage 3: train linear classifier to measure representation performance
-    # xxx(okachaiev): find a way to run evaluation per N epochs (configurable)
-    report_file = exp_dir / "linear_accuracy.json"
-    if os.path.exists(report_file) and not args.resume:
-        print(f"* Loading linear classifier performance from {report_file}")
-        with open(report_file, "r") as fd:
-            print(fd.read())
-    else:
-        print("===> Fitting linear classifier")
-        # xxx(okachaiev): would be interesting to have separate task for eval
-        evaluate(
-            eval_datasets['train'],
-            eval_datasets['test'],
-            report_file,
-            n_epochs=args.n_eval_epochs,
-            lr=args.eval_lr,
-        )
