@@ -369,7 +369,7 @@ def encode(net: Encoder, data_loader: DataLoader, subset_name: str = 'train') ->
     if args.save_proj:
         features = torch.zeros((n_samples, args.n_patches, net.h_dim))
         projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
-    for batch_id, (X, y) in enumerate(tqdm(data_loader, desc=f"Encoding '{subset_name}' dataset")):
+    for batch_id, (X, y) in enumerate(tqdm(data_loader, desc=f"Encoding ({subset_name:>7}) dataset")):
         X = torch.stack(X, dim=0).to(device)
         n_patches, bs, C, H, W = X.shape
         X = X.reshape(n_patches*bs, C, H, W)
