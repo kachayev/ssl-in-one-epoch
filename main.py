@@ -353,6 +353,7 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
                 exp_dir / "linear_accuracy.txt",
                 n_epochs=args.n_eval_epochs,
                 lr=args.eval_lr,
+                age_n_epochs=epoch+1,
             )
 
 
