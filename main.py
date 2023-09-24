@@ -1,7 +1,7 @@
 import argparse
 import os
 from pathlib import Path
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from typing import Optional, Tuple, Union
 
 import torch
@@ -341,13 +341,12 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
         }, model_dir / f"{epoch}.pt")
 
         if (epoch+1) % args.eval_freq == 0 or (epoch+1) == args.n_epochs:
+            print("===> Evaluating linear prob")
             net.eval()
             eval_datasets = {}
             for subset, dataloader in [('train', train_dataloader), ('test', test_dataloader)]:
-                print(f"===> Encoding '{subset}' dataset for evaluation")
-                eval_datasets[subset] = encode(net, dataloader)
+                eval_datasets[subset] = encode(net, dataloader, subset_name=subset)
 
-            print("===> Fitting linear classifier")
             evaluate(
                 eval_datasets['train'],
                 eval_datasets['test'],
@@ -357,7 +356,7 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
             )
 
 
-def encode(net: Encoder, data_loader: DataLoader) -> TensorDataset:
+def encode(net: Encoder, data_loader: DataLoader, subset_name: str = 'train') -> TensorDataset:
     n_samples = len(data_loader)*args.bs
     if args.emb_pool.lower() == 'features':
         emb_dim = net.h_dim
@@ -370,7 +369,7 @@ def encode(net: Encoder, data_loader: DataLoader) -> TensorDataset:
     if args.save_proj:
         features = torch.zeros((n_samples, args.n_patches, net.h_dim))
         projections = torch.zeros((n_samples, args.n_patches, net.z_dim))
-    for batch_id, (X, y) in enumerate(tqdm(data_loader)):
+    for batch_id, (X, y) in enumerate(tqdm(data_loader, desc=f"Encoding '{subset_name}' dataset")):
         X = torch.stack(X, dim=0).to(device)
         n_patches, bs, C, H, W = X.shape
         X = X.reshape(n_patches*bs, C, H, W)
@@ -432,7 +431,7 @@ def evaluate(
     train_accuracy = torch.zeros(n_epochs)
     test_accuracy = torch.zeros(n_epochs)
     test_accuracy_top5 = torch.zeros(n_epochs)
-    for epoch in tqdm(n_epochs, desc="Fitting linear prob"):
+    for epoch in trange(n_epochs, desc="Fitting linear prob"):
         train_top1 = torch.zeros(len(train_loader))
         # train
         classifier.train()
