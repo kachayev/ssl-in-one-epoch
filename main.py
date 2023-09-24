@@ -474,7 +474,7 @@ def evaluate(
 
 if __name__ == '__main__':
     net = Encoder(z_dim=args.z_dim, hidden_dim=args.h_dim, backbone_arch=args.arch).to(device)
-    print(f"* Encoder network: {sum(p.numel() for p in net.parameters())} params")
+    print(f"* Encoder network: {sum(p.numel() for p in net.parameters()):,} params")
     if args.pretrained_proj:
         net_weights = net.state_dict()
         weights = torch.load(args.pretrained_proj, map_location=device)
