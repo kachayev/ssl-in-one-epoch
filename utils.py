@@ -2,6 +2,7 @@ from argparse import Namespace
 from enum import Enum
 from pathlib import Path
 from PIL import ImageFilter
+from tqdm import tqdm
 import yaml
 
 import torch
@@ -412,8 +413,8 @@ def load_config_into(config_file: Path, args: Namespace) -> None:
     with open(config_file, 'r') as fd:
         settings = yaml.safe_load(fd)
     for k, v in settings['params'].items():
-        if args.__getattr__(k, None) is None:
-            args.__setattr__(k, v)
+        if getattr(args, k, None) is None:
+            setattr(args, k, v)
 
 
 def log_exp_config(config_file: Path, args: Namespace, force_override: bool = False) -> None:
