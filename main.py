@@ -1,6 +1,7 @@
 import argparse
 import os
 from pathlib import Path
+import time
 from tqdm import tqdm, trange
 from typing import Optional, Tuple, Union
 
@@ -14,8 +15,10 @@ from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
 from utils import (
+    AverageMeter,
     GBlur,
     LARSWrapper,
+    ProgressTracker,
     accuracy,
     cleanup_old_checkpoints,
     load_config_into,
@@ -213,7 +216,9 @@ def parse_args():
     train_parser.add_argument('--config_from', type=str, default=None, metavar='DIR',
                               help='copy default configuration from existing experiment')
     train_parser.add_argument('--eval_freq', type=int, default=10, metavar='N',
-                              help='fit linear prob after N epochs')
+                              help='fit linear prob after each N epochs')
+    train_parser.add_argument('--print_freq', type=int, default=1, metavar='N',
+                              help='print train losses after each N batches')
 
     resume_parser = subparsers.add_parser('resume')
     resume_parser.add_argument('--exp_dir', type=str, required=True, metavar='DIR',
@@ -306,31 +311,52 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
     else:
         raise ValueError(f"Unknown uniformity loss: {args.uniformity_loss}")
 
+    n_batches_per_epoch = len(train_dataloader)
+    tracker = ProgressTracker(n_batches_per_epoch)
+    batch_time = tracker.create_meter('Time', ':5.3f')
+    data_time = tracker.create_meter('Data', ':5.3f')
+    losses_align = tracker.create_meter('Loss@Align', ':.4f')
+    losses_unif = tracker.create_meter('Loss@Unif', ':.4f')
+    losses = tracker.create_meter('Loss', ':.5f')
+
     for epoch in range(first_epoch, args.n_epochs):
+        tracker.reset(prefix=f"Epoch {epoch+1:03d}/{args.n_epochs:03d}")
         # xxx(okachaiev): it's interesting that within an unsupervised learning regime
-        #                 it should be okay to through test datasets their as well, right? :thinking:
-        for (X, _) in tqdm(train_dataloader, desc=f"Epoch {epoch+1:03d}/{args.n_epochs:03d}"):
+        #                 it should be okay to throw test dataset their as well, right?
+        end = time.time()
+        for i, (X, _) in enumerate(train_dataloader):
+            # measure data loading time
+            data_time.update(time.time() - end)
+
+            # combine patches into a tensor, move data to the same device as model
             X = torch.stack(X, dim=0).to(device)
             n_patches, bs, C, H, W = X.shape
             X = X.reshape(n_patches*bs, C, H, W)
+
+            # compute output
             _, z_proj = net(X)
             z_proj = z_proj.reshape(n_patches, bs, -1)
+
+            # measure and record loss
             loss_sim = similarity_loss(z_proj)
             loss_unif = uniformity_reg(z_proj)
             loss = args.invariance_loss_weight*loss_sim + args.uniformity_loss_weight*loss_unif
+            losses_align.update(loss_sim.item(), bs)
+            losses_unif.update(loss_unif.item(), bs)
+            losses.update(loss.item(), bs)
 
             net.zero_grad()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        scheduler.step()
 
-        print(
-            f"Epoch: {epoch+1:03d} | "
-            f"Loss sim: {loss_sim.item():.5f} | "
-            f"Loss unif: {loss_unif.item():.5f} | "
-            f"Loss total: {(loss_sim.item() + loss_unif.item()):.5f}"
-        )
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+            if i % args.print_freq == 0 or i == n_batches_per_epoch-1:
+                tracker.display(i + 1)
+
+        scheduler.step()
 
         # save checkpoint
         torch.save({

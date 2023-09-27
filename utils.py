@@ -3,9 +3,11 @@ from enum import Enum
 from pathlib import Path
 from PIL import ImageFilter
 from tqdm import tqdm
+from typing import List, Optional
 import yaml
 
 import torch
+import torch.distributed as dist
 from torch.optim.optimizer import Optimizer
 
 
@@ -18,6 +20,7 @@ class Summary(Enum):
 
 class AverageMeter:
     """Computes and stores the average and current value"""
+
     def __init__(self, name, fmt=':f', summary_type=Summary.AVERAGE):
         self.name = name
         self.fmt = fmt
@@ -36,57 +39,69 @@ class AverageMeter:
         self.count += n
         self.avg = self.sum / self.count
 
-    def all_reduce(self):
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-        else:
-            device = torch.device("cpu")
+    def all_reduce(self, device=None):
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         total = torch.tensor([self.sum, self.count], dtype=torch.float32, device=device)
         dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
         self.sum, self.count = total.tolist()
         self.avg = self.sum / self.count
 
     def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        return fmtstr.format(**self.__dict__)
+        fmt = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmt.format(**self.__dict__)
 
     def summary(self):
-        fmtstr = ''
         if self.summary_type is Summary.NONE:
-            fmtstr = ''
+            fmt = ''
         elif self.summary_type is Summary.AVERAGE:
-            fmtstr = '{name} {avg:.3f}'
+            fmt = '{name} {avg:.3f}'
         elif self.summary_type is Summary.SUM:
-            fmtstr = '{name} {sum:.3f}'
+            fmt = '{name} {sum:.3f}'
         elif self.summary_type is Summary.COUNT:
-            fmtstr = '{name} {count:.3f}'
+            fmt = '{name} {count:.3f}'
         else:
             raise ValueError(f"Invalid summary type: {self.summary_type}")
 
-        return fmtstr.format(**self.__dict__)
+        return fmt.format(**self.__dict__)
 
 
-class ProgressMeter:
+class ProgressTracker:
 
-    def __init__(self, num_batches, meters, prefix=""):
-        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
-        self.meters = meters
+    def __init__(self, num_batches: int, meters: Optional[List[AverageMeter]] = None, prefix=''):
+        self.batch_fmt = self._get_batch_fmt(num_batches)
+        self.meters = meters or []
         self.prefix = prefix
 
-    def display(self, batch):
-        entries = [self.prefix + self.batch_fmtstr.format(batch)]
-        entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
-        
-    def display_summary(self):
-        entries = [" *"]
-        entries += [meter.summary() for meter in self.meters]
-        print(' '.join(entries))
+    def _entries(self, batch):
+        yield self.prefix + self.batch_fmt.format(batch)
+        yield from map(str, self.meters)
 
-    def _get_batch_fmtstr(self, num_batches):
-        num_digits = len(str(num_batches // 1))
-        fmt = '{:' + str(num_digits) + 'd}'
+    def display(self, batch):
+        print('\t'.join(self._entries(batch)))
+
+    def _summary_entries(self):
+        yield ' *'
+        for meter in self.meters:
+            yield meter.summary()
+
+    def display_summary(self):
+        print(' '.join(self._summary_entries()))
+
+    def _get_batch_fmt(self, num_batches):
+        num_digits = len(str(num_batches // 1))+1
+        fmt = '{:0' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
+
+    def create_meter(self, *args, **kwargs) -> AverageMeter:
+        meter = AverageMeter(*args, **kwargs)
+        self.meters.append(meter)
+        return meter
+
+    def reset(self, prefix=''):
+        self.prefix = prefix
+        for meter in self.meters:
+            meter.reset()
 
 
 @torch.no_grad()
