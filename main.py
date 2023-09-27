@@ -487,7 +487,7 @@ def evaluate(
             test_top5.update(top5, X.size(0))
 
         if epoch % args.print_eval_freq:
-            print(tracker.display())
+            print(tracker.display(epoch))
 
     # xxx(okachaiev): I also need to track best accuracy somehow
     print(tracker.display_summary())
