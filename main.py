@@ -489,10 +489,10 @@ def evaluate(
         if epoch % args.print_eval_freq:
             print(tracker.display(epoch))
 
-    # xxx(okachaiev): I also need to track best accuracy somehow
-    print(tracker.display_summary())
+    summary = tracker.display_summary(f"Prob after (n_epochs): {age_n_epochs:03d}")
+    print(summary)
     with open(report_file, "a") as fd:
-        fd.write(tracker.display_summary() + '\n')
+        fd.write(summary + '\n')
 
 
 if __name__ == '__main__':

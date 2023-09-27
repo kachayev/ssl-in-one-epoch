@@ -7,7 +7,6 @@ from typing import List, Optional
 import yaml
 
 import torch
-import torch.distributed as dist
 from torch.optim.optimizer import Optimizer
 
 
@@ -16,12 +15,15 @@ class Summary(Enum):
     AVERAGE = 1
     SUM = 2
     COUNT = 3
+    MAX = 4
+    MIN = 5
+    MIX = 6
 
 
 class AverageMeter:
     """Computes and stores the average and current value"""
 
-    def __init__(self, name, fmt=':f', summary_type=Summary.AVERAGE):
+    def __init__(self, name, fmt=':f', summary_type=Summary.MIX):
         self.name = name
         self.fmt = fmt
         self.summary_type = summary_type
@@ -32,37 +34,39 @@ class AverageMeter:
         self.avg = 0
         self.sum = 0
         self.count = 0
+        self.max = 0
+        self.min = 0
 
     def update(self, val, n=1):
         self.val = val
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
-    def all_reduce(self, device=None):
-        if device is None:
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        total = torch.tensor([self.sum, self.count], dtype=torch.float32, device=device)
-        dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
-        self.sum, self.count = total.tolist()
-        self.avg = self.sum / self.count
+        self.max = max(self.max, self.avg)
+        self.min = min(self.min, self.avg)
 
     def __str__(self):
         fmt = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
         return fmt.format(**self.__dict__)
 
-    def summary(self):
-        if self.summary_type is Summary.NONE:
+    def summary(self, summary_type: Optional[Summary] = None):
+        summary_type = summary_type or self.summary_type
+        if summary_type is Summary.NONE:
             fmt = ''
-        elif self.summary_type is Summary.AVERAGE:
+        elif summary_type is Summary.AVERAGE:
             fmt = '{name} {avg:.3f}'
-        elif self.summary_type is Summary.SUM:
+        elif summary_type is Summary.SUM:
             fmt = '{name} {sum:.3f}'
-        elif self.summary_type is Summary.COUNT:
+        elif summary_type is Summary.COUNT:
             fmt = '{name} {count:.3f}'
+        elif summary_type is Summary.MAX:
+            fmt = '{name} {max:.3f}'
+        elif summary_type is Summary.MIN:
+            fmt = '{name} {min:.3f}'
+        elif summary_type is Summary.MIX:
+            fmt = '{name} {min' + self.fmt + '} / {avg' + self.fmt + '} / {max' + self.fmt + '}'
         else:
-            raise ValueError(f"Invalid summary type: {self.summary_type}")
-
+            raise ValueError(f"Invalid summary type: {summary_type}")
         return fmt.format(**self.__dict__)
 
 
@@ -78,19 +82,19 @@ class ProgressTracker:
         yield self.prefix + self.batch_fmt.format(batch)
         yield from map(str, self.meters)
 
-    def display(self, batch):
+    def display(self, batch) -> str:
         return '\t'.join(self._entries(batch))
 
-    def _summary_entries(self):
-        yield ' *'
+    def _summary_entries(self, prefix: str):
+        yield prefix
         for meter in self.meters:
             yield meter.summary()
 
-    def display_summary(self) -> str:
-        return ' '.join(self._summary_entries())
+    def display_summary(self, prefix: str = ' *') -> str:
+        return ' | '.join(self._summary_entries(prefix))
 
     def _get_batch_fmt(self, num_batches):
-        num_digits = len(str(num_batches // 1))+1
+        num_digits = len(str(num_batches // 1))
         fmt = '{:0' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
