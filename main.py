@@ -483,8 +483,8 @@ def evaluate(
             with torch.no_grad():
                 logits = classifier(X)
             top1, top5 = accuracy(logits, y, topk=(1, 5))
-            test_top1.update(top1, X.size(0))
-            test_top5.update(top5, X.size(0))
+            test_top1.update(top1.item(), X.size(0))
+            test_top5.update(top5.item(), X.size(0))
 
         if epoch % args.print_eval_freq:
             print(tracker.display(epoch))
