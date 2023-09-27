@@ -66,6 +66,7 @@ class AverageMeter:
         return fmt.format(**self.__dict__)
 
 
+# xxx(okachaiev): integrate this tracker with summary writer for tensorboard
 class ProgressTracker:
 
     def __init__(self, num_batches: int, meters: Optional[List[AverageMeter]] = None, prefix=''):
@@ -78,15 +79,15 @@ class ProgressTracker:
         yield from map(str, self.meters)
 
     def display(self, batch):
-        print('\t'.join(self._entries(batch)))
+        return '\t'.join(self._entries(batch))
 
     def _summary_entries(self):
         yield ' *'
         for meter in self.meters:
             yield meter.summary()
 
-    def display_summary(self):
-        print(' '.join(self._summary_entries()))
+    def display_summary(self) -> str:
+        return ' '.join(self._summary_entries())
 
     def _get_batch_fmt(self, num_batches):
         num_digits = len(str(num_batches // 1))+1

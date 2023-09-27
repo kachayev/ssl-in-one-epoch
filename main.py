@@ -217,7 +217,9 @@ def parse_args():
                               help='copy default configuration from existing experiment')
     train_parser.add_argument('--eval_freq', type=int, default=10, metavar='N',
                               help='fit linear prob after each N epochs')
-    train_parser.add_argument('--print_freq', type=int, default=1, metavar='N',
+    train_parser.add_argument('--print_freq', type=int, default=50, metavar='N',
+                              help='print train losses after each N batches')
+    train_parser.add_argument('--print_eval_freq', type=int, default=50, metavar='N',
                               help='print train losses after each N batches')
 
     resume_parser = subparsers.add_parser('resume')
@@ -338,10 +340,10 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
             z_proj = z_proj.reshape(n_patches, bs, -1)
 
             # measure and record loss
-            loss_sim = similarity_loss(z_proj)
+            loss_align = similarity_loss(z_proj)
             loss_unif = uniformity_reg(z_proj)
-            loss = args.invariance_loss_weight*loss_sim + args.uniformity_loss_weight*loss_unif
-            losses_align.update(loss_sim.item(), bs)
+            loss = args.invariance_loss_weight*loss_align + args.uniformity_loss_weight*loss_unif
+            losses_align.update(loss_align.item(), bs)
             losses_unif.update(loss_unif.item(), bs)
             losses.update(loss.item(), bs)
 
@@ -353,9 +355,10 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-            if i % args.print_freq == 0 or i == n_batches_per_epoch-1:
-                tracker.display(i + 1)
+            if i % args.print_freq == 0:
+                print(tracker.display(i + 1))
 
+        print(tracker.display_summary())
         scheduler.step()
 
         # save checkpoint
@@ -455,51 +458,41 @@ def evaluate(
     # define loss function
     criterion = nn.CrossEntropyLoss()
 
-    train_accuracy = torch.zeros(n_epochs)
-    test_accuracy = torch.zeros(n_epochs)
-    test_accuracy_top5 = torch.zeros(n_epochs)
-    for epoch in trange(n_epochs, desc="Fitting linear prob"):
-        train_top1 = torch.zeros(len(train_loader))
+    tracker = ProgressTracker(n_epochs)
+    test_top1 = tracker.create_meter('Acc@1', ':6.3f')
+    test_top5 = tracker.create_meter('Acc@5', ':6.3f')
+    for epoch in range(n_epochs):
+        # reset tracker to get proper view of how accuracy changes
+        tracker.reset(prefix=f"Epoch {epoch+1:03d}/{n_epochs:03d}")
+
         # train
         classifier.train()
-        for batch_id, (X, y) in enumerate(train_loader):
+        for X, y in train_loader:
             X, y = X.to(device), y.to(device)
             logits = classifier(X)
             loss = criterion(logits, y)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            #  batch accuracy
-            top1, = accuracy(logits, y, topk=(1,))
-            train_top1[batch_id] = top1
         scheduler.step()
 
         # eval on test dataset now
-        test_top1 = torch.zeros(len(test_loader))
-        test_top5 = torch.zeros(len(test_loader))
         classifier.eval()
-        for batch_id, (X, y) in enumerate(test_loader):
+        for X, y in test_loader:
             X, y = X.to(device), y.to(device)
             with torch.no_grad():
                 logits = classifier(X)
             top1, top5 = accuracy(logits, y, topk=(1, 5))
-            test_top1[batch_id] = top1
-            test_top5[batch_id] = top5
+            test_top1.update(top1, X.size(0))
+            test_top5.update(top5, X.size(0))
 
-        train_accuracy[epoch] = train_top1.mean().item()
-        test_accuracy[epoch] = test_top1.mean().item()
-        test_accuracy_top5[epoch] = test_top5.mean().item()
-    # report best performance
-    report = ' | '.join([
-        f"Prob after (n_epochs): {age_n_epochs}",
-        f"Best top1 (train): {train_accuracy.max().item()*100:.4f}",
-        f"Init top1 (test): {test_accuracy[0].item()*100:.4f}",
-        f"Best top1 (test): {test_accuracy.max().item()*100:.4f}",
-        f"Last top1 (test): {test_accuracy[-1].item()*100:.4f}",
-    ])
-    print(report)
+        if epoch % args.print_eval_freq:
+            print(tracker.display())
+
+    # xxx(okachaiev): I also need to track best accuracy somehow
+    print(tracker.display_summary())
     with open(report_file, "a") as fd:
-        fd.write(report + '\n')
+        fd.write(tracker.display_summary() + '\n')
 
 
 if __name__ == '__main__':
