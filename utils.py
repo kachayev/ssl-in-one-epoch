@@ -1,13 +1,14 @@
 from argparse import Namespace
 from enum import Enum
 from pathlib import Path
-from PIL import ImageFilter
-from tqdm import tqdm
 from typing import List, Optional
-import yaml
 
+import numpy as np
+from PIL import ImageFilter
 import torch
 from torch.optim.optimizer import Optimizer
+from tqdm import tqdm
+import yaml
 
 
 class Summary(Enum):
@@ -34,8 +35,8 @@ class AverageMeter:
         self.avg = 0
         self.sum = 0
         self.count = 0
-        self.max = 0
-        self.min = 0
+        self.max = -np.inf
+        self.min = np.inf
 
     def update(self, val, n=1):
         self.val = val
