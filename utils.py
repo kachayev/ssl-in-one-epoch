@@ -1,14 +1,14 @@
 from argparse import Namespace
 from enum import Enum
-from pathlib import Path
-from typing import List, Optional
-
 import numpy as np
+from pathlib import Path
 from PIL import ImageFilter
+from tqdm import tqdm
+from typing import List, Optional
+import yaml
+
 import torch
 from torch.optim.optimizer import Optimizer
-from tqdm import tqdm
-import yaml
 
 
 class Summary(Enum):
@@ -28,29 +28,38 @@ class AverageMeter:
         self.name = name
         self.fmt = fmt
         self.summary_type = summary_type
+        self.max = -np.inf
+        self.min = np.inf
         self.reset()
 
     def reset(self):
         self.val = 0
-        self.avg = 0
         self.sum = 0
         self.count = 0
-        self.max = -np.inf
-        self.min = np.inf
+        self.avg = np.nan
+        self.running_max = -np.inf
+        self.running_min = np.inf
 
     def update(self, val, n=1):
         self.val = val
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-        self.max = max(self.max, self.avg)
-        self.min = min(self.min, self.avg)
+        self.running_max = max(self.running_max, val)
+        self.running_min = min(self.running_min, val)
 
     def __str__(self):
         fmt = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
         return fmt.format(**self.__dict__)
 
     def summary(self, summary_type: Optional[Summary] = None):
+        # xxx(okachaiev): this design is rather fragile, as
+        # it might not be expected that merely taking summary
+        # would cause the reset of currently running min/max stats
+        if not np.isnan(self.avg):
+            self.max = max(self.max, self.avg)
+            self.min = min(self.min, self.avg)
+
         summary_type = summary_type or self.summary_type
         if summary_type is Summary.NONE:
             fmt = ''
@@ -65,7 +74,7 @@ class AverageMeter:
         elif summary_type is Summary.MIN:
             fmt = '{name} {min:.3f}'
         elif summary_type is Summary.MIX:
-            fmt = '{name} {min' + self.fmt + '} / {avg' + self.fmt + '} / {max' + self.fmt + '}'
+            fmt = '{name} {min' + self.fmt + '}/{avg' + self.fmt + '}/{max' + self.fmt + '}'
         else:
             raise ValueError(f"Invalid summary type: {summary_type}")
         return fmt.format(**self.__dict__)

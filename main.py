@@ -490,6 +490,9 @@ def evaluate(
             print(tracker.display(epoch))
 
     summary = tracker.display_summary(f"Prob after (n_epochs): {age_n_epochs:03d}")
+    # xxx(okachaiev): in-file and on-screen reporting could be a part of the
+    #                 tracker functionality, btw. would be a good place to add
+    #                 tensorboard log writer as well
     print(summary)
     with open(report_file, "a") as fd:
         fd.write(summary + '\n')
