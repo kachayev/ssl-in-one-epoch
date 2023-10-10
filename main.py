@@ -15,7 +15,6 @@ from torchvision import datasets, transforms
 from torchvision.models import resnet18
 
 from utils import (
-    AverageMeter,
     GBlur,
     LARSWrapper,
     ProgressTracker,
