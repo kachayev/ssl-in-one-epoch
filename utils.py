@@ -4,7 +4,7 @@ import numpy as np
 from pathlib import Path
 from PIL import ImageFilter
 from tqdm import tqdm
-from typing import List, Optional
+from typing import Generator, List, Optional
 import yaml
 
 import torch
@@ -30,9 +30,14 @@ class AverageMeter:
         self.summary_type = summary_type
         self.max = -np.inf
         self.min = np.inf
+        self.avg = np.nan
         self.reset()
 
     def reset(self):
+        if not np.isnan(self.avg):
+            self.max = max(self.max, self.avg)
+            self.min = min(self.min, self.avg)
+
         self.val = 0
         self.sum = 0
         self.count = 0
@@ -52,10 +57,7 @@ class AverageMeter:
         fmt = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
         return fmt.format(**self.__dict__)
 
-    def summary(self, summary_type: Optional[Summary] = None):
-        # xxx(okachaiev): this design is rather fragile, as
-        # it might not be expected that merely taking summary
-        # would cause the reset of currently running min/max stats
+    def summarize(self, summary_type: Optional[Summary] = None) -> str:
         if not np.isnan(self.avg):
             self.max = max(self.max, self.avg)
             self.min = min(self.min, self.avg)
@@ -95,12 +97,12 @@ class ProgressTracker:
     def display(self, batch) -> str:
         return '\t'.join(self._entries(batch))
 
-    def _summary_entries(self, prefix: str):
+    def _summary_entries(self, prefix: str) -> Generator[str, None, None]:
         yield prefix
         for meter in self.meters:
-            yield meter.summary()
+            yield meter.summarize()
 
-    def display_summary(self, prefix: str = ' *') -> str:
+    def summarize(self, prefix: str = ' *') -> str:
         return ' | '.join(self._summary_entries(prefix))
 
     def _get_batch_fmt(self, num_batches):

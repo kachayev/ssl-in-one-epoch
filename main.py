@@ -357,7 +357,7 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
             if i % args.print_freq == 0:
                 print(tracker.display(i + 1))
 
-        print(tracker.display_summary())
+        print(tracker.summarize())
         scheduler.step()
 
         # save checkpoint
@@ -488,7 +488,7 @@ def evaluate(
         if epoch % args.print_eval_freq:
             print(tracker.display(epoch))
 
-    summary = tracker.display_summary(f"Prob after (n_epochs): {age_n_epochs:03d}")
+    summary = tracker.summarize(f"Prob after (n_epochs): {age_n_epochs:03d}")
     # xxx(okachaiev): in-file and on-screen reporting could be a part of the
     #                 tracker functionality, btw. would be a good place to add
     #                 tensorboard log writer as well
