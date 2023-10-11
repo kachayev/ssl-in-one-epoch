@@ -264,6 +264,8 @@ model_dir = exp_dir / 'checkpoints'
 model_dir.mkdir(parents=True, exist_ok=True)
 artifacts_dir = exp_dir / 'artifacts'
 artifacts_dir.mkdir(parents=True, exist_ok=True)
+prob_dir = exp_dir / 'probs'
+prob_dir.mkdir(parents=True, exist_ok=True)
 config_file = exp_dir / 'hparams.yaml'
 log_exp_config(config_file, args)
 
@@ -285,7 +287,7 @@ test_dataset = load_dataset(args.dataset, train=False, n_patch=args.n_patches)
 test_dataloader = DataLoader(
     test_dataset,
     batch_size=args.bs,
-    shuffle=True,
+    shuffle=False,
     drop_last=True,
     num_workers=n_workers
 )
@@ -323,7 +325,7 @@ def train(net: nn.Module, first_epoch: int = 0, prev_state: Optional[dict] = Non
     for epoch in range(first_epoch, args.n_epochs):
         tracker.reset(prefix=f"Epoch {epoch+1:03d}/{args.n_epochs:03d}")
         # xxx(okachaiev): it's interesting that within an unsupervised learning regime
-        #                 it should be okay to throw test dataset their as well, right?
+        #                 it should be okay to throw test dataset there as well, right?
         end = time.time()
         for i, (X, _) in enumerate(train_dataloader):
             # measure data loading time
@@ -421,7 +423,6 @@ def encode(net: Encoder, data_loader: DataLoader, subset_name: str = 'train') ->
     return TensorDataset(embeddings, labels.long())
 
 
-# xxx(okachaiev): we might also want to store trained classifier
 def evaluate(
     train_data,
     test_data,
@@ -441,7 +442,7 @@ def evaluate(
     test_loader = DataLoader(
         test_data,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=False,
         drop_last=False,
         num_workers=1,
     )
@@ -495,6 +496,9 @@ def evaluate(
     print(summary)
     with open(report_file, "a") as fd:
         fd.write(summary + '\n')
+
+    # save trained classifier
+    torch.save(classifier.state_dict(), prob_dir / f"{age_n_epochs-1}.pt")
 
 
 if __name__ == '__main__':
