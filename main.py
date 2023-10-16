@@ -2,11 +2,12 @@ import argparse
 import os
 from pathlib import Path
 import time
-from tqdm import tqdm, trange
+from tqdm import tqdm
 from typing import Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 import torch.nn.functional as F
 from torch.optim import SGD
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -65,6 +66,21 @@ def get_backbone(arch: str) -> Tuple[nn.Module, int]:
     else:
         raise ValueError(f"Unsupported backbone architecture: {arch}")
     return backbone, 512
+
+
+def init_weights(net):
+    for m in net.modules():
+        if isinstance(m, nn.Conv2d):
+            init.kaiming_normal_(m.weight, mode='fan_out')
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm1d):
+            init.constant_(m.weight, 1)
+            init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            init.normal_(m.weight, std=1e-3)
+            if m.bias is not None:
+                init.constant_(m.bias, 0)
 
 
 class Encoder(nn.Module):
@@ -503,6 +519,7 @@ def evaluate(
 
 if __name__ == '__main__':
     net = Encoder(z_dim=args.z_dim, hidden_dim=args.h_dim, backbone_arch=args.arch).to(device)
+    net.apply(init_weights)
     print(f"* Encoder network: {sum(p.numel() for p in net.parameters()):,} params")
     if args.pretrained_proj:
         net_weights = net.state_dict()
