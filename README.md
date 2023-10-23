@@ -136,4 +136,6 @@ You can also pass
 
 * Testing limits of the bottleneck: `h_dim=256` (using mean token embedding as output, `z_dim` set to 4096, and von Mises uniformity loss) gives 84+% top1 accuracy on 20 patches. What's interesting that `n_patches=2` seems to be working just fine as well.
 
+* Hypothesising that `resnet18` as a backbone is a way too large for CIFAR10 (almost 12MM parameters when counting together with feature projection layer). Removing the `layer4` (last block) actually improves performance after the first epoch (< 81% top1 accuracy) while making the network 6x smaller. Removing `layer3` in addition to that makes epoch=0 accuracy a bit lower (78-79%), generalization bound is yet to be verified though.
+
 (This list will be updated with more experiments.)

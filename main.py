@@ -50,22 +50,34 @@ class ContrastiveLearningViewGenerator:
         return [self.transform_(x) for _ in range(self.n_patch)]
 
 
-def get_backbone(arch: str) -> Tuple[nn.Module, int]:
+def load_backbone(arch: str) -> Tuple[nn.Module, int]:
+    feature_dim = 512
+    backbone = resnet18()
     if arch == 'resnet18-cifar':
-        backbone = resnet18()
         backbone.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         backbone.maxpool = nn.Identity()
         backbone.fc = nn.Identity()
+    elif arch == "resnet18-mini":
+        backbone.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        backbone.maxpool = nn.Identity()
+        backbone.fc = nn.Identity()
+        backbone.layer4 = nn.Identity()
+        feature_dim = 256
+    elif arch == "resnet18-tiny":
+        backbone.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        backbone.maxpool = nn.Identity()
+        backbone.fc = nn.Identity()
+        backbone.layer3 = nn.Identity()
+        backbone.layer4 = nn.Identity()
+        feature_dim = 128
     elif arch == 'resnet18-imagenet':
-        backbone = resnet18()
         backbone.fc = nn.Identity()
     elif arch == 'resnet18-tinyimagenet':
-        backbone = resnet18()
         backbone.avgpool = nn.AdaptiveAvgPool2d(1)
         backbone.fc = nn.Identity()
     else:
         raise ValueError(f"Unsupported backbone architecture: {arch}")
-    return backbone, 512
+    return backbone, feature_dim
 
 
 def init_weights(net):
@@ -194,7 +206,13 @@ def parse_args():
     train_parser.add_argument('--n_patches', type=int, default=100,
                               help='number of patches used in EMP-SSL (default: 100)')
     train_parser.add_argument('--arch', type=str, default="resnet18-cifar",
-                              choices=('resnet18-cifar', 'resnet18-imagenet', 'resnet18-tinyimagenet'),
+                              choices=(
+                                  'resnet18-cifar',
+                                  'resnet18-imagenet',
+                                  'resnet18-tinyimagenet',
+                                  'resnet18-mini',
+                                  'resnet18-tiny',
+                              ),
                               help='network architecture (default: resnet18-cifar)')
     train_parser.add_argument('--n_epochs', type=int, default=2,
                               help='max number of epochs to finish (default: 2)')
