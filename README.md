@@ -122,6 +122,8 @@ You can also pass
 
 ## Additional Experimentation Insights
 
+* Most importantly, it doesn't require an entire epoch to learn relatively stable features. In fact, after processing about 75% of the dataset, the test accuracy nearly reaches its maximum (comparing with the end of the epoch).
+
 * The use of the `ReLU` activation within the feature encoder doesn't appear to significantly alter performance. Utilizing alternative activation layers, such as `Tanh`, yields comparable results. Interestingly, while in some cases a `ReLU` post a `BatchNorm1d` can carry nuanced implications, that doesn't seem to be the scenario here.
 
 * The inclusion of `BatchNorm1d` is not paramount (by any means), both for the feature encoder and the projection network. Removing both batch norms drops top1 test performance for `n_patches=50` on CIFAR10 from 89.25% to 88.81%.
